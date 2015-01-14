@@ -23,12 +23,12 @@ typedef struct usb_otg_dev* usb_otg_t;
 
 struct usb_otg_dev {
     int id;
-    struct dma_allocator* dalloc;
+    ps_dma_man_t* dman;
     /* Operations */
     int (*ep0_setup)(usb_otg_t otg,
                      otg_setup_cb cb, void* token);
     int (*prime)(usb_otg_t otg, int ep, enum usb_xact_type dir,
-                 dma_mem_t buf, int len,
+                 void* vbuf, uintptr_t pbuf, int len,
                  otg_prime_cb cb, void* token);
     /* Platform private data */
     struct usb_otg_data* pdata;

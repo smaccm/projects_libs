@@ -431,25 +431,25 @@ kbd_connect(usb_dev_t udev)
         xact[i].type = PID_SETUP;
         xact[i].len = sizeof(*req);
     }
-    err = usb_alloc_xact(kbd->udev, xact, sizeof(xact) / sizeof(*xact));
+    err = usb_alloc_xact(kbd->udev->dman, xact, sizeof(xact) / sizeof(*xact));
     if (err) {
         assert(0);
         return -1;
     }
     KBD_DBG(kbd, "Configuring keyboard (config=%d, iface=%d)\n",
             kbd->cfgno, kbd->ifno);
-    req = dma_vaddr(xact[0].buf);
+    req = xact_get_vaddr(&xact[0]);
     *req = __set_configuration_req(kbd->cfgno);
-    req = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[1]);
     *req = __set_interface_req(kbd->ifno);
-    req = dma_vaddr(xact[2].buf);
+    req = xact_get_vaddr(&xact[2]);
     *req = __set_protocol_req(BOOT, kbd->ifno);
-    req = dma_vaddr(xact[3].buf);
+    req = xact_get_vaddr(&xact[3]);
     *req = __set_idle_req(0, kbd->ifno);
     err = usbdev_schedule_xact(udev, 0, kbd->udev->max_pkt, 0, xact,
                                sizeof(xact) / sizeof(*xact), NULL, NULL);
     kbd->repeat_rate = 0;
-    usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+    usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
     if (err < 0) {
         KBD_DBG(kbd, "Keyboard initialisation error\n");
         assert(err >= 0);
@@ -559,28 +559,28 @@ usb_kbd_driver_bind(usb_dev_t udev, struct ps_chardevice *cdev)
     /* Allocate a buffer for our IRQs */
     kbd->int_xact[0].len = KBD_KEYS_SIZE;
     kbd->int_xact[0].type = PID_INT;
-    err = usb_alloc_xact(udev, kbd->int_xact, 1);
+    err = usb_alloc_xact(udev->dman, kbd->int_xact, 1);
     if (err) {
         assert(0);
         usb_free(dev_data);
         return -1;
     }
-    kbd->new_keys = dma_vaddr(kbd->int_xact[0].buf);
+    kbd->new_keys = xact_get_vaddr(&kbd->int_xact[0]);
     memset(kbd->old_keys, 0, sizeof(kbd->old_keys));
     /* Allocate a buffer for indicators/repeat delay */
     kbd->xact[0].len = sizeof(*req);
     kbd->xact[0].type = PID_SETUP;
     kbd->xact[1].len = 1;
     kbd->xact[1].type = PID_OUT;
-    err = usb_alloc_xact(udev, kbd->xact, 2);
+    err = usb_alloc_xact(udev->dman, kbd->xact, 2);
     if (err) {
-        usb_destroy_xact(kbd->int_xact, 1);
+        usb_destroy_xact(udev->dman, kbd->int_xact, 1);
         usb_free(dev_data);
         assert(0);
         return -1;
     }
-    kbd->req = dma_vaddr(kbd->xact[0].buf);
-    kbd->ind = dma_vaddr(kbd->xact[1].buf);
+    kbd->req = xact_get_vaddr(&kbd->xact[0]);
+    kbd->ind = xact_get_vaddr(&kbd->xact[1]);
     *kbd->ind = KBDIND_NUM;
     /* Configure and set up the device */
     udev->connect = &kbd_connect;
@@ -592,8 +592,8 @@ usb_kbd_driver_bind(usb_dev_t udev, struct ps_chardevice *cdev)
     }
     /* Bind to a character device */
     if (ps_cdev_new(NULL, cdev) == NULL) {
-        usb_destroy_xact(kbd->int_xact, 1);
-        usb_destroy_xact(kbd->xact, 1);
+        usb_destroy_xact(udev->dman, kbd->int_xact, 1);
+        usb_destroy_xact(udev->dman, kbd->xact, 1);
         usb_free(dev_data);
         assert(0);
         return -2;

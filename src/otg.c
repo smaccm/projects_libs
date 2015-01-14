@@ -15,9 +15,7 @@
 
 
 int
-usb_otg_init(int id, usb_otg_t* otg_ptr,
-             struct dma_allocator* dalloc,
-             ps_io_ops_t ioops)
+usb_otg_init(int id, usb_otg_t* otg_ptr, ps_io_ops_t ioops)
 {
     usb_otg_t otg;
     int err;
@@ -31,7 +29,7 @@ usb_otg_init(int id, usb_otg_t* otg_ptr,
         assert(0);
         return -1;
     }
-    otg->dalloc = dalloc;
+    otg->dman = &ioops.dma_manager;
     otg->id = id;
     otg->ep0_setup = NULL;
     otg->prime = NULL;
@@ -58,9 +56,9 @@ otg_ep0_setup(usb_otg_t otg, otg_setup_cb cb, void* token)
 
 int
 otg_prime(usb_otg_t otg, int ep, enum usb_xact_type dir,
-          dma_mem_t buf, int len,
+          void* vbuf, uintptr_t pbuf, int len,
           otg_prime_cb cb, void* token)
 {
-    return otg->prime(otg, ep, dir, buf, len, cb, token);
+    return otg->prime(otg, ep, dir, vbuf, pbuf, len, cb, token);
 }
 

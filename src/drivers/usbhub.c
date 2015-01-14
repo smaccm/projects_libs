@@ -219,10 +219,10 @@ _handle_port_change(usb_hub_t h, int port)
     xact[0].len = sizeof(*req);
     xact[1].type = PID_IN;
     xact[1].len = sizeof(*sts);
-    ret = usb_alloc_xact(h->udev, xact, 2);
+    ret = usb_alloc_xact(h->udev->dman, xact, 2);
     assert(!ret);
-    req = dma_vaddr(xact[0].buf);
-    sts = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[0]);
+    sts = xact_get_vaddr(&xact[1]);
 
 
     /* get the associated ports status change */
@@ -379,7 +379,7 @@ hub_irq_handler(void* token, enum usb_xact_status stat)
     HUB_DBG(h, "Handling IRQ\n");
 
     intbm = h->intbm;
-    assert(intbm == dma_vaddr(h->int_xact.buf));
+    assert(intbm == xact_get_vaddr(&h->int_xact));
     for (i = 0; i < h->int_xact.len; i++) {
         /* Check if any bits have changed */
         if (intbm[i] == 0) {
@@ -458,9 +458,9 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
     xact[0].len = sizeof(*req);
     xact[1].type = PID_IN;
     xact[1].len = sizeof(*hdesc);
-    err = usb_alloc_xact(udev, xact, 2);
+    err = usb_alloc_xact(udev->dman, xact, 2);
     assert(!err);
-    req = dma_vaddr(xact[0].buf);
+    req = xact_get_vaddr(&xact[0]);
     *req = __get_hub_descriptor_req();
     err = usbdev_schedule_xact(udev, 0, h->udev->max_pkt, 0,
                                xact, 2, NULL, NULL);
@@ -468,10 +468,10 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
         assert(0);
         return -1;
     }
-    hdesc = dma_vaddr(xact[1].buf);
+    hdesc = xact_get_vaddr(&xact[1]);
     h->nports = hdesc->bNbrPorts;
     h->power_good_delay_ms = hdesc->bPwrOn2PwrGood * 2;
-    usb_destroy_xact(xact, 2);
+    usb_destroy_xact(udev->dman, xact, 2);
     h->port = (struct usb_hub_port*)usb_malloc(
                   sizeof(*h->port) * h->nports);
     memset(h->port, 0, sizeof(*h->port) * h->nports);
@@ -486,14 +486,14 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
     xact[0].type = PID_SETUP;
     xact[0].len = sizeof(*req);
     xact[1] = xact[0];
-    err = usb_alloc_xact(h->udev, xact, 2);
+    err = usb_alloc_xact(h->udev->dman, xact, 2);
     if (err) {
         assert(!err);
         return -1;
     }
-    req = dma_vaddr(xact[0].buf);
+    req = xact_get_vaddr(&xact[0]);
     *req = __set_configuration_req(h->cfgno);
-    req = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[1]);
     *req = __set_interface_req(h->ifno);
     err = usbdev_schedule_xact(udev, 0, h->udev->max_pkt, 0,
                                xact, 2, NULL, NULL);
@@ -501,12 +501,12 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
         assert(err >= 0);
         return -1;
     }
-    usb_destroy_xact(xact, 2);
+    usb_destroy_xact(udev->dman, xact, 2);
     /* Power up ports */
     xact[0].type = PID_SETUP;
     xact[0].len = sizeof(*req);
-    usb_alloc_xact(h->udev, xact, 1);
-    req = dma_vaddr(xact[0].buf);
+    usb_alloc_xact(h->udev->dman, xact, 1);
+    req = xact_get_vaddr(&xact[0]);
     for (i = 1; i <= h->nports; i++) {
         HUB_DBG(h, "Power on port %d\n", i);
         *req = __set_port_feature_req(i, PORT_POWER);
@@ -515,7 +515,7 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
         assert(err >= 0);
     }
     msdelay(h->power_good_delay_ms);
-    usb_destroy_xact(xact, 1);
+    usb_destroy_xact(udev->dman, xact, 1);
 #if !defined(HUB_ENABLE_IRQS)
     /* Setup ports */
     for (i = 1; i <= h->nports; i++) {
@@ -525,9 +525,9 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
 #if defined(HUB_ENABLE_IRQS)
     h->int_xact.type = PID_INT;
     h->int_xact.len = (h->nports + 7) / 8;
-    err = usb_alloc_xact(udev, &h->int_xact, 1);
+    err = usb_alloc_xact(udev->dman, &h->int_xact, 1);
     assert(!err);
-    h->intbm = dma_vaddr(h->int_xact.buf);
+    h->intbm = xact_get_vaddr(&h->int_xact);
     HUB_DBG(h, "Registering for INT\n");
     /* TODO: dynamic max pkt size */
     usbdev_schedule_xact(udev, 1, h->int_max_pkt, h->int_rate_ms,
@@ -732,15 +732,15 @@ hubem_process_xact(usb_hubem_t dev, int ep,
     int err;
     /* We only handle Control endpoint */
     assert(ep == 0);
-    assert(xact[0].buf);
+    assert(xact_get_vaddr(&xact[0]));
     for (err = 0, i = 0; !err && i < nxact; i++) {
         if (xact[i].type != PID_SETUP) {
             continue;
         }
-        req = dma_vaddr(xact[i].buf);
+        req = xact_get_vaddr(&xact[i]);
         assert(xact[i].len >= sizeof(*req));
         if (i + 1 < nxact && xact[i + 1].type != PID_SETUP) {
-            buf = dma_vaddr(xact[i + 1].buf);
+            buf = xact_get_vaddr(&xact[i + 1]);
             buf_len = xact[i + 1].len;
         } else {
             buf = NULL;

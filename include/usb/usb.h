@@ -68,7 +68,7 @@ struct usb_dev {
     usb_dev_t hub;
     uint8_t  port;
     enum usb_speed speed;
-    struct dma_allocator* dalloc;
+    ps_dma_man_t* dman;
     /* Filled on creation/init */
     uint16_t prod_id;
     uint16_t vend_id;
@@ -261,15 +261,12 @@ __set_interface_req(int index) {
  *                          initialise
  * @param[in] ioops         a structure defining operations for
  *                          device access.
- * @param[in] dma_allocator a DMA memory allocator instance for
- *                          the USB host and associated devices
- *                          to use.
  * @param[out] host         On success, this will be filled with
  *                          a handle to the usb host controller
  *                          associated with @ref{id}.
  * @return                  0 on success.
  */
-int usb_init(enum usb_host_id id, ps_io_ops_t* ioops, struct dma_allocator *dma_allocator, usb_t* host);
+int usb_init(enum usb_host_id id, ps_io_ops_t* ioops, usb_t* host);
 
 /** Probe for a new device on the BUS.
  * This function is typically called by a HUB device when it
@@ -389,19 +386,20 @@ void usb_probe_device(usb_dev_t dev);
 void usb_handle_irq(usb_t* host);
 
 /** Allocate transaction buffers for requests
- * @param[in]     dev    The USB device that will be using the buffer
+ * @param[in]     dman   A dma allocator instance
  * @param[in/out] xact   A array structure which provides the sizes of buffers
  *                       to allocate. On success, this array will be filled
  *                       with references to the allocated DMA memory.
  * @param[in]    nxact   The size, in array indexes, of xact.
  * @return               0 on success
  */
-int usb_alloc_xact(usb_dev_t dev, struct xact* xact, int nxact);
+int usb_alloc_xact(ps_dma_man_t* dman, struct xact* xact, int nxact);
 
 /** Frees transaction buffers
+ * @param[in]    dman  The dma allocator instance that was used for the allocation
  * @param[in]    xact  The description of the transaction
  * @param[in]    nxact The number of entries in xact
  */
-void usb_destroy_xact(struct xact* xact, int nxact);
+void usb_destroy_xact(ps_dma_man_t* dman, struct xact* xact, int nxact);
 
 #endif /* _USB_USB_H_ */

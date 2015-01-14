@@ -205,8 +205,9 @@ struct dQH {
 
 struct dTDn {
     volatile struct dTD* dtd;
-    dma_mem_t dma_dtd;
-    dma_mem_t buf;
+    uintptr_t pdtd;
+    void *buf;
+    uintptr_t pbuf;
     otg_prime_cb cb;
     void* token;
     struct dTDn* next;
@@ -225,7 +226,8 @@ struct ehci_otg {
     /* Number of endpoints provided by this driver */
     int nep;
     /* DMA memory for endpoint QH array */
-    dma_mem_t dma_dqh;
+    void* dqh;
+    uintptr_t pdqh;
     /* Array of endpoint QH and TD tuples */
     struct otg_ep* ep;
     /* Setup packet callback data
@@ -351,7 +353,7 @@ dump_dtdn(struct dTDn* dtdn)
         dump_dtd(dtd);
         if (dtdn->next) {
             dump_dtdn(dtdn->next);
-            dump_buf(dma_vaddr(dtdn->buf), 0x12);
+            dump_buf(dtdn->buf, 0x12);
         }
     }
 }
@@ -422,12 +424,11 @@ dtd_get_status(volatile struct dTD* dtd)
 }
 
 static struct dTDn*
-otg_dtdn_new(usb_otg_t otg, dma_mem_t buf, int len) {
+otg_dtdn_new(usb_otg_t otg, void* buf, uintptr_t pbuf, int len) {
     struct dTDn* dtdn;
     volatile struct dTD* dtd;
     int cur_len;
     int i;
-    uintptr_t paddr;
     assert(buf || len == 0);
     assert(otg);
     /* Allocate a descriptor */
@@ -436,8 +437,8 @@ otg_dtdn_new(usb_otg_t otg, dma_mem_t buf, int len) {
         assert(dtdn);
         return NULL;
     }
-    dtd = dma_alloc(otg->dalloc, sizeof(*dtdn->dtd), 32,
-                    DMAF_HRW, &dtdn->dma_dtd);
+    dtd = ps_dma_alloc_pinned(otg->dman, sizeof(*dtdn->dtd), 32,
+                              0, PS_MEM_NORMAL, &dtdn->pdtd);
     if (dtd == NULL) {
         assert(dtd);
         return NULL;
@@ -452,14 +453,13 @@ otg_dtdn_new(usb_otg_t otg, dma_mem_t buf, int len) {
     dtd->token = DTDTOK_BYTES(len) | DTDTOK_IOC
                  | DTDTOK_MULTO(0) | DTDTOK_ACTIVE;
     cur_len = 0;
-    paddr = dma_paddr(buf);
     for (i = 0; i < sizeof(dtd->buf) / sizeof(*dtd->buf); i++) {
         if (cur_len < len) {
             int this_len;
-            dtd->buf[i] = paddr;
-            this_len = 0x1000 - (paddr & 0xfff);
+            dtd->buf[i] = pbuf;
+            this_len = 0x1000 - (pbuf & 0xfff);
             cur_len += this_len;
-            paddr += this_len;
+            pbuf += this_len;
         } else {
             dtd->buf[i] = 0;
         }
@@ -495,7 +495,7 @@ imx6_otg_ep0_setup(usb_otg_t otg, otg_setup_cb cb, void* token)
 
 static int
 imx6_otg_prime(usb_otg_t otg, int epno, enum usb_xact_type dir,
-               dma_mem_t buf, int len,
+               void* buf, uintptr_t pbuf, int len,
                otg_prime_cb cb, void* token)
 {
     struct otg_ep* ep;
@@ -514,7 +514,7 @@ imx6_otg_prime(usb_otg_t otg, int epno, enum usb_xact_type dir,
         ep++;
     }
     /* Create the descriptor */
-    dtdn = otg_dtdn_new(otg, buf, len);
+    dtdn = otg_dtdn_new(otg, buf, pbuf, len);
     if (dtdn == NULL) {
         assert(dtdn);
         return -1;
@@ -541,7 +541,7 @@ imx6_otg_prime(usb_otg_t otg, int epno, enum usb_xact_type dir,
     if (ep->dqh->overlay.dTD_next != DTDNEXT_INVALID) {
         /* Case 2: List is not empty */
         /* 1) Add dTD to end of linked list */
-        dtd_prev->dTD_next = dma_paddr(dtdn->dma_dtd);
+        dtd_prev->dTD_next = dtdn->pdtd;
         /* 2) Read prime bit */
         if (odev->op_regs->otg_endptprime & epbit) {
             /* DONE */
@@ -567,7 +567,7 @@ imx6_otg_prime(usb_otg_t otg, int epno, enum usb_xact_type dir,
     }
     /* Case 1: List is empty */
     /* 1) Write dQH next pointer */
-    dtd_prev->dTD_next = dma_paddr(dtdn->dma_dtd);
+    dtd_prev->dTD_next = dtdn->pdtd;
     /* 2) Clear active and halt bit in dQH */
     ep->dqh->overlay.token &= ~(DTDTOK_HALTED | DTDTOK_ACTIVE);
     /* 3) Prime endpoint */
@@ -631,7 +631,7 @@ otg_handle_setup(usb_otg_t otg, struct otg_ep* ep)
         OTG_DBG(odev, "New address %d\n", addr);
         odev->op_regs->otg_deviceaddr = OTG_DEVADDR(addr)
                                         | OTG_DEVADDR_ADV;
-        otg_prime(otg, ep->ep, PID_IN, NULL, 0, NULL, NULL);
+        otg_prime(otg, ep->ep, PID_IN, NULL, 0, 0, NULL, NULL);
     } else {
         odev->setup_cb(otg, odev->setup_token, &req);
     }
@@ -654,7 +654,7 @@ otg_handle_complete(usb_otg_t otg, struct otg_ep* ep)
         if (dtdn->cb) {
             dtdn->cb(otg, dtdn->token, stat);
         }
-        dma_free(dtdn->dma_dtd);
+        ps_dma_free_pinned(otg->dman, (void*)dtdn->dtd, sizeof(*dtdn->dtd));
         tmp = dtdn;
         dtdn = dtdn->next;
         usb_free(tmp);
@@ -757,9 +757,9 @@ ehci_otg_init(usb_otg_t odev, uintptr_t cap_regs)
     otg->op_regs = (void*)(cap_regs + otg->cap_regs->caplength);
     /* Setup endpoints */
     otg->nep = (otg->cap_regs->dccparams & 0x1f);
-    dqh_list = dma_alloc(odev->dalloc,
-                         sizeof(*otg->ep[0].dqh) * otg->nep * 2,
-                         2048, DMAF_HRW, &otg->dma_dqh);
+    dqh_list = ps_dma_alloc_pinned(odev->dman,
+                                   sizeof(*otg->ep[0].dqh) * otg->nep * 2,
+                                   2048, 0, PS_MEM_NORMAL, &otg->pdqh);
     if (dqh_list == NULL) {
         usb_assert(0);
         return -1;
@@ -782,7 +782,7 @@ ehci_otg_init(usb_otg_t odev, uintptr_t cap_regs)
     }
     /* Initialise the controller */
     otg->op_regs->otg_deviceaddr = 0;
-    otg->op_regs->otg_endptlistaddr = dma_paddr(otg->dma_dqh);
+    otg->op_regs->otg_endptlistaddr = otg->pdqh;
     /* flush eps */
     otg->op_regs->otg_endptnaken = 0x10001;
     otg->op_regs->otg_endptcomplete |= 0;

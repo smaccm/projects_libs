@@ -16,7 +16,6 @@
 #ifndef __USB_USB_HOST_H_
 #define __USB_USB_HOST_H_
 
-#include <dma/dma.h>
 #include <platsupport/io.h>
 #include <usb/plat/usb.h>
 
@@ -57,10 +56,21 @@ struct xact {
 /// Transfer type
     enum usb_xact_type type;
 /// DMA buffer to exchange
-    dma_mem_t buf;
+    void* vaddr;
+    uintptr_t paddr;
 /// The length of @ref{buf}
     int len;
 };
+
+static inline void* xact_get_vaddr(struct xact* xact)
+{
+    return xact->vaddr;
+}
+
+static inline uintptr_t xact_get_paddr(struct xact* xact)
+{
+    return xact->paddr;
+}
 
 /** Callback type for asynchronous USB transactions
  * @param[in] token  An unmodified opaque token as passed to
@@ -80,7 +90,7 @@ struct usb_host {
     enum usb_host_id id;
 
     /// DMA allocator
-    struct dma_allocator* dalloc;
+    ps_dma_man_t* dman;
 
     /// Submit a transaction for transfer.
     int (*schedule_xact)(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port,
@@ -105,13 +115,12 @@ struct usb_host {
  * @param[in]  id     The id of the host controller to initialise
  * @param[in]  ioops  a list of io operation functions.
  *                    of the initialised host controller
- * @param[in]  dalloc dma allocator for the host crontroller to use
  * @param[out] hdev   A host structure to populate. This must
  *                    already be filled with a DMA allocator.
  *                    and the device ID.
  * @return            0 on success
  */
-int usb_host_init(enum usb_host_id id, ps_io_ops_t* ioops, struct dma_allocator* dalloc, usb_host_t* hdev);
+int usb_host_init(enum usb_host_id id, ps_io_ops_t* ioops, usb_host_t* hdev);
 
 /** Return a list of IRQ numbers handled by the provided host
  * @param[in]  host   A handle to the USB host device in question

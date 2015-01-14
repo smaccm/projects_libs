@@ -18,8 +18,15 @@
 
 struct otg_usbtty {
     usb_otg_t otg;
-    struct dma_allocator* dalloc;
-    dma_mem_t dma_desc;
+    ps_dma_man_t* dman;
+    void* desc;
+    uintptr_t pdesc;
+};
+
+struct free_token {
+    void* vaddr;
+    size_t size;
+    ps_dma_man_t* dman;
 };
 
 static struct device_desc otg_usbtty_device_desc = {
@@ -94,9 +101,11 @@ static void
 freebuf_cb(usb_otg_t otg, void* token,
            enum usb_xact_status stat)
 {
-    (void)otg;
+    struct free_token* t;
     assert(stat == XACTSTAT_SUCCESS);
-    dma_free((dma_mem_t)token);
+    t = (struct free_token*)token;
+    ps_dma_free_pinned(t->dman, t->vaddr, t->size);
+    free(t);
 }
 
 static void
@@ -149,35 +158,39 @@ send_desc(otg_usbtty_t tty, enum DescriptorType type, int index,
     }
     /* Send the descriptor */
     if (d != NULL) {
-        dma_mem_t dma_buf;
-        void* buf;
+        struct free_token* t;
+        uintptr_t pbuf;
         int err;
-        int size = d->bLength;
+
+        t = malloc(sizeof(*t));
+        assert(t);
+        t->dman = tty->dman;
+
         /* limit size to prevent babble */
-        if (maxlen < size) {
-            size = maxlen;
+        t->size = d->bLength;
+        if (maxlen < t->size) {
+            t->size = maxlen;
         }
         /* Copy in */
-        buf = dma_alloc(tty->dalloc, size, 32, DMAF_HRW,
-                        &dma_buf);
-        if (buf == NULL) {
+        t->vaddr = ps_dma_alloc_pinned(tty->dman, t->size, 32, 0, PS_MEM_NORMAL, &pbuf);
+        if (t->vaddr == NULL) {
             assert(0);
             return;
         }
-        memcpy(buf, d, size);
+        memcpy(t->vaddr, d, t->size);
+
         /* Send the packet */
-        err = otg_prime(tty->otg, 0, PID_IN, dma_buf, size,
-                        freebuf_cb, dma_buf);
+        err = otg_prime(tty->otg, 0, PID_IN, t->vaddr, pbuf, t->size, freebuf_cb, t);
         if (err) {
             assert(0);
-            dma_free(dma_buf);
+            ps_dma_free_pinned(tty->dman, t->vaddr, t->size);
             return;
         }
         /* Status phase */
-        err = otg_prime(tty->otg, 0, PID_OUT, NULL, 0, freebuf_cb, dma_buf);
+        err = otg_prime(tty->otg, 0, PID_OUT, NULL, 0, 0, freebuf_cb, t);
         if (err) {
             assert(0);
-            dma_free(dma_buf);
+            ps_dma_free_pinned(tty->dman, t->vaddr, t->size);
         }
     }
 }
@@ -229,13 +242,13 @@ usbtty_setup_cb(usb_otg_t otg, void* token, struct usbreq* req)
 }
 
 int
-otg_usbtty_init(usb_otg_t otg, struct dma_allocator* dalloc,
+otg_usbtty_init(usb_otg_t otg, ps_dma_man_t* dman,
                 otg_usbtty_t* usbtty)
 {
     otg_usbtty_t tty;
     int err;
 
-    assert(dalloc);
+    assert(dman);
     assert(usbtty);
     assert(otg);
 
@@ -245,7 +258,7 @@ otg_usbtty_init(usb_otg_t otg, struct dma_allocator* dalloc,
         assert(0);
         return -1;
     }
-    tty->dalloc = dalloc;
+    tty->dman = dman;
     tty->otg = otg;
     /* Initialise the control endpoint */
     err = otg_ep0_setup(otg, usbtty_setup_cb, tty);

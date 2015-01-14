@@ -454,11 +454,11 @@ usbdev_config_print(usb_dev_t udev)
     xact[0].len = sizeof(*req);
     xact[1].type = PID_IN;
     xact[1].len = sizeof(struct device_desc);
-    ret = usb_alloc_xact(udev, xact, 2);
+    ret = usb_alloc_xact(udev->dman, xact, 2);
     if (ret) {
         assert(0);
     }
-    req = dma_vaddr(xact[0].buf);
+    req = xact_get_vaddr(&xact[0]);
     *req = __get_descriptor_req(DEVICE, 0, xact[1].len);
     ret = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0,
                                xact, 2, NULL, NULL);
@@ -466,9 +466,9 @@ usbdev_config_print(usb_dev_t udev)
         assert(ret >= 0);
         return;
     }
-    desc = (struct anon_desc*)dma_vaddr(xact[1].buf);
+    desc = (struct anon_desc*)xact_get_vaddr(&xact[1]);
     usb_print_descriptor(desc, -1);
-    usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+    usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
     /* Print config descriptors */
     usbdev_parse_config(udev, usb_config_print_cb, cnt);
 }
@@ -576,21 +576,21 @@ usb_new_device_with_host(usb_dev_t hub, usb_t* host, int port, enum usb_speed sp
     udev->speed = speed;
     udev->max_pkt = 8;
     udev->host = host;
-    udev->dalloc = host->hdev.dalloc;
+    udev->dman = host->hdev.dman;
 
     xact[0].type = PID_SETUP;
     xact[0].len = sizeof(*req);
     xact[1].type = PID_IN;
     xact[1].len = sizeof(*d_desc);
-    err = usb_alloc_xact(udev, xact, 2);
+    err = usb_alloc_xact(udev->dman, xact, 2);
     if (err) {
         USB_DBG(udev, "No DMA memory for new USB device\n");
         assert(0);
         free(udev);
         return -1;
     }
-    req = dma_vaddr(xact[0].buf);
-    d_desc = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[0]);
+    d_desc = xact_get_vaddr(&xact[1]);
 
 
     /* USB transactions are O(n) when trying to bind a driver.
@@ -615,7 +615,7 @@ usb_new_device_with_host(usb_dev_t hub, usb_t* host, int port, enum usb_speed sp
     err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0,
                                xact, 2, NULL, NULL);
     if (err < 0) {
-        usb_destroy_xact(xact, 2);
+        usb_destroy_xact(udev->dman, xact, 2);
         free(udev);
         return -1;
     }
@@ -638,7 +638,7 @@ usb_new_device_with_host(usb_dev_t hub, usb_t* host, int port, enum usb_speed sp
     if (addr < 0) {
         USB_DBG(dev, "Too many devices\n");
         assert(0);
-        usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+        usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
         usb_free(udev);
         return -1;
     }
@@ -657,7 +657,7 @@ usb_new_device_with_host(usb_dev_t hub, usb_t* host, int port, enum usb_speed sp
     udev->addr = addr;
 
     *d = udev;
-    usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+    usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
 
     /* Search through disconnected drivers for reconnection */
     udev = devlist_find_inactive(*d);
@@ -678,7 +678,7 @@ usb_new_device_with_host(usb_dev_t hub, usb_t* host, int port, enum usb_speed sp
  ****************************/
 
 int
-usb_init(enum usb_host_id id, ps_io_ops_t* ioops, struct dma_allocator *dalloc, usb_t* host)
+usb_init(enum usb_host_id id, ps_io_ops_t* ioops, usb_t* host)
 {
     usb_hub_t  hub;
     usb_dev_t  udev;
@@ -687,7 +687,7 @@ usb_init(enum usb_host_id id, ps_io_ops_t* ioops, struct dma_allocator *dalloc, 
     /* Prefill the host structure */
     devlist_init(host);
 
-    err = usb_host_init(id, ioops, dalloc, &host->hdev);
+    err = usb_host_init(id, ioops, &host->hdev);
     if (err) {
         assert(!err);
         return -1;
@@ -733,18 +733,18 @@ usbdev_parse_config(usb_dev_t udev, usb_config_cb cb, void* t)
     xact[0].type = PID_SETUP;
     xact[1].len = sizeof(*cd);
     xact[1].type = PID_IN;
-    err = usb_alloc_xact(udev, xact, 2);
+    err = usb_alloc_xact(udev->dman, xact, 2);
     if (err) {
         assert(0);
         return -1;
     }
-    req = dma_vaddr(xact[0].buf);
-    cd = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[0]);
+    cd = xact_get_vaddr(&xact[1]);
     *req = __get_descriptor_req(CONFIGURATION, 0, xact[1].len);
     err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0, xact,
                                2, NULL, NULL);
     if (err < 0) {
-        usb_destroy_xact(xact, 2);
+        usb_destroy_xact(udev->dman, xact, 2);
         assert(0);
         return -1;
     }
@@ -754,23 +754,23 @@ usbdev_parse_config(usb_dev_t udev, usb_config_cb cb, void* t)
     xact[0].type = PID_SETUP;
     xact[1].len = tot_len;
     xact[1].type = PID_IN;
-    err = usb_alloc_xact(udev, xact, 2);
+    err = usb_alloc_xact(udev->dman, xact, 2);
     if (err) {
         assert(0);
         return -1;
     }
-    req = dma_vaddr(xact[0].buf);
-    d = dma_vaddr(xact[1].buf);
+    req = xact_get_vaddr(&xact[0]);
+    d = xact_get_vaddr(&xact[1]);
     *req = __get_descriptor_req(CONFIGURATION, 0, tot_len);
     err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0, xact,
                                2, NULL, NULL);
     if (err < 0) {
-        usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+        usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
         return -1;
     }
     /* Now loop through descriptors */
     err = parse_config(d, tot_len, cb, t);
-    usb_destroy_xact(xact, sizeof(xact) / sizeof(*xact));
+    usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
     return err;
 }
 
@@ -867,32 +867,30 @@ usb_probe_device(usb_dev_t dev)
 }
 
 int
-usb_alloc_xact(usb_dev_t udev, struct xact* xact, int nxact)
+usb_alloc_xact(ps_dma_man_t* dman, struct xact* xact, int nxact)
 {
-    void* b;
     int i;
     for (i = 0; i < nxact; i++) {
         if (xact[i].len) {
-            b = dma_alloc(udev->dalloc, 0x1000 + 0 * xact[i].len, 32, DMAF_HRW, &xact[i].buf);
-            if (b == NULL) {
-                int j;
-                for (j = 0; j < i; j++) {
-                    dma_free(xact[i].buf);
-                }
+            xact[i].vaddr = ps_dma_alloc_pinned(dman, 0x1000 + 0 * xact[i].len, 32, 0, PS_MEM_NORMAL, &xact[i].paddr);
+            if (xact[i].vaddr == NULL) {
+                usb_destroy_xact(dman, xact, i);
                 return -1;
             }
         } else {
-            xact[i].buf = NULL;
+            xact[i].vaddr = NULL;
         }
     }
     return 0;
 }
 
 void
-usb_destroy_xact(struct xact* xact, int nxact)
+usb_destroy_xact(ps_dma_man_t* dman, struct xact* xact, int nxact)
 {
     while (nxact-- > 0) {
-        dma_free(xact[nxact].buf);
+        if (xact[nxact].vaddr) {
+            ps_dma_free_pinned(dman, xact[nxact].vaddr, xact[nxact].len);
+        }
     }
 }
 

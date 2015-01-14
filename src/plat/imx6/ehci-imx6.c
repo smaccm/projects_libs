@@ -327,19 +327,18 @@ imx6_usb_generic_init(int id, ps_io_ops_t* ioops)
 
 
 int
-usb_host_init(enum usb_host_id id, ps_io_ops_t* ioops, struct dma_allocator* dalloc, usb_host_t* hdev)
+usb_host_init(enum usb_host_id id, ps_io_ops_t* ioops, usb_host_t* hdev)
 {
     struct usb_host_regs * hc_regs = NULL;
     int err;
     if (id < 0 || id > USB_NHOSTS) {
         return -1;
     }
-    assert(dalloc);
     assert(ioops);
     assert(hdev);
 
     hdev->id = id;
-    hdev->dalloc = dalloc;
+    hdev->dman = &ioops->dma_manager;
 
     err = imx6_usb_generic_init(hdev->id, ioops);
     if (err) {
@@ -360,7 +359,7 @@ usb_plat_otg_init(usb_otg_t odev, ps_io_ops_t* ioops)
 {
     struct usb_otg_regs* otg_regs;
     int err;
-    assert(odev->dalloc);
+    assert(odev->dman);
     assert(odev->id == 0);
     err = imx6_usb_generic_init(odev->id, ioops);
     if (err) {

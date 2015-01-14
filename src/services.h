@@ -41,4 +41,25 @@ void otg_irq(void);
 #define isb() asm volatile("isb")
 #define dmb() asm volatile("dmb")
 
+static inline void*
+ps_dma_alloc_pinned(ps_dma_man_t *dma_man, size_t size, int align, int cache, ps_mem_flags_t flags,
+                    uintptr_t* paddr)
+{
+    void* addr;
+    assert(dma_man);
+    addr = ps_dma_alloc(dma_man, size, align, cache, flags);
+    if (addr != NULL) {
+        *paddr = ps_dma_pin(dma_man, addr, size);
+    }
+    return addr;
+}
+
+static inline void
+ps_dma_free_pinned(ps_dma_man_t *dma_man, void* addr, size_t size)
+{
+    assert(dma_man);
+    ps_dma_unpin(dma_man, addr, size);
+    ps_dma_free(dma_man, addr, size);
+}
+
 

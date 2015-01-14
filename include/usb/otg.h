@@ -26,9 +26,7 @@ int usb_default_otg_id(void);
  */
 int usb_notgs(void);
 
-int usb_otg_init(int id, usb_otg_t* otg,
-                 struct dma_allocator* dma_allocator,
-                 ps_io_ops_t ioops);
+int usb_otg_init(int id, usb_otg_t* otg, ps_io_ops_t ioops);
 
 /** Pass control to the devices IRQ handler
  * @param[in] host    The USB host that triggered
@@ -46,7 +44,7 @@ int otg_ep0_setup(usb_otg_t otg, otg_setup_cb cb, void* token);
 typedef void (*otg_prime_cb)(usb_otg_t otg, void* token,
                              enum usb_xact_status stat);
 int otg_prime(usb_otg_t otg, int ep, enum usb_xact_type dir,
-              dma_mem_t buf, int len,
+              void* vbuf, uintptr_t pbuf, int len,
               otg_prime_cb cb, void* token);
 
 #endif /* _USB_OTG_H_ */
