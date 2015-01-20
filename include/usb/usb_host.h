@@ -107,6 +107,25 @@ struct usb_host {
     struct usb_hc_data* pdata;
 };
 
+static inline int
+usb_hcd_schedule(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port, enum usb_speed speed,
+                 int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact, usb_cb_t cb, void* t)
+{
+    return hdev->schedule_xact(hdev, addr, hub_addr, hub_port, speed, ep, max_pkt, rate_ms, xact, nxact, cb, t);
+}
+
+static inline int
+usb_hcd_cancel(usb_host_t* hdev, uint8_t usb_addr)
+{
+    return hdev->cancel_xact(hdev, usb_addr);
+}
+
+static inline void
+usb_hcd_handle_irq(usb_host_t* hdev)
+{
+    hdev->handle_irq(hdev);
+}
+
 /**
  * Initialise USB host controller.
  * This function should only be called if you wish to use a raw API for the usb host controller, otherwise,
