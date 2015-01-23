@@ -24,6 +24,8 @@
 #define HUB_ENABLE_IRQS
 
 #define HUB_DEBUG
+//#define HUBEM_DEBUG
+
 #ifdef HUB_DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
 #else
@@ -40,6 +42,13 @@
             }                                           \
             dprintf(__VA_ARGS__);                       \
         }while(0)
+
+#ifdef HUB_DEBUG
+#define DHUBEM(...) printf("HUBEM   :" __VA_ARGS__)
+#else
+#define DHUBEM(...) do{}while(0)
+#endif
+
 
 
 /*** USB spec chapter 11 page 262 ***/
@@ -191,7 +200,7 @@ struct usb_hub {
 };
 
 struct usb_hubem {
-    int nports;
+    int hubem_nports;
     int pwr_delay_ms;
     int (*set_pf)(void *token, int port,
                   enum port_feature feature);
@@ -617,15 +626,17 @@ hubem_get_descriptor(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
     switch (dtype) {
     case DEVICE: {
         struct device_desc* ret = (struct device_desc*)buf;
+        DHUBEM("Get device descriptor\n");
         act_len = MIN(len, sizeof(*ret));
         memcpy(ret, &_hub_device_desc, act_len);
         return act_len;
     }
     case DESCRIPTOR_TYPE_HUB: {
         struct hub_desc* ret = (struct hub_desc*)buf;
-        int nregs = (dev->nports + 7) / 8;
+        int nregs = (dev->hubem_nports + 7) / 8;
         int i;
-        _hub_hub_desc.bNbrPorts = dev->nports;
+        DHUBEM("Get hub type descriptor\n");
+        _hub_hub_desc.bNbrPorts = dev->hubem_nports;
         _hub_hub_desc.bPwrOn2PwrGood = dev->pwr_delay_ms / 2;
         _hub_hub_desc.bDescLength = 7 + nregs * 2;
         for (i = 0; i < nregs; i++) {
@@ -640,6 +651,7 @@ hubem_get_descriptor(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
         int cp_len;
         int pos = 0;
         int act_len;
+        DHUBEM("Get configuration descriptor\n");
         act_len = MIN(_hub_config_desc.wTotalLength, len);
         /* Copy the config */
         cp_len = MIN(act_len - pos, _hub_config_desc.bLength);
@@ -650,7 +662,7 @@ hubem_get_descriptor(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
         memcpy(buf + pos, &_hub_iface_desc, cp_len);
         pos += cp_len;
         /* copy the endpoint */
-        _hub_endpoint_desc.wMaxPacketSize = (dev->nports + 7) / 8;
+        _hub_endpoint_desc.wMaxPacketSize = (dev->hubem_nports + 7) / 8;
         cp_len = MIN(act_len - pos, _hub_endpoint_desc.bLength);
         memcpy(buf + pos, &_hub_endpoint_desc, cp_len);
         pos += cp_len;
@@ -659,12 +671,14 @@ hubem_get_descriptor(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
     }
     case INTERFACE: {
         int act_len;
+        DHUBEM("Get interface descriptor\n");
         act_len = MIN(_hub_iface_desc.bLength, len);
         memcpy(buf, &_hub_iface_desc, act_len);
         return act_len;
     }
     case ENDPOINT: {
         int act_len;
+        DHUBEM("Get endpoint descriptor\n");
         act_len = MIN(_hub_endpoint_desc.bLength, len);
         memcpy(buf, &_hub_endpoint_desc, act_len);
         return act_len;
@@ -689,8 +703,10 @@ hubem_feature(usb_hubem_t dev, struct usbreq* req)
     int ret;
     switch (req->bRequest) {
     case SET_FEATURE:
+        DHUBEM("Set feature %d -> port %d\n", f, p);
         return dev->set_pf(t, p, f);
     case CLR_FEATURE:
+        DHUBEM("Clear feature %d -> port %d\n", f, p);
         return dev->clr_pf(t, p, f);
     default:
         printf("Unsupported feature: %d\n", f);
@@ -704,18 +720,27 @@ hubem_get_status(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
 {
     int port = req->wIndex;
     if (port == 0) {
-        assert(0);
-        return -1;
-    } else if (port <= dev->nports) {
+        /* Device status: self powered | remote wakeup */
+        uint16_t stat = 0;
+        int act_len;
+        DHUBEM("Get Status: Device status\n");
+        act_len = MIN(len, sizeof(stat));
+        memcpy(buf, &stat, act_len);
+        return act_len;
+    } else if (port <= dev->hubem_nports) {
+        /* Port status */
         struct port_status *psts = (struct port_status*)buf;
         int act_len = MIN(len, sizeof(*psts));
         assert(len >= sizeof(*psts));
         if (dev->get_pstat(dev->token, port, psts)) {
+            DHUBEM("Get Status: Failed to read status for port %d\n", port);
             return -1;
         } else {
+            DHUBEM("Get Status: Success s%d c%d\n", psts->wPortStatus, psts->wPortChange);
             return act_len;
         }
     } else {
+        DHUBEM("Get Status: Invalid port (%d/%d)\n", port, dev->hubem_nports);
         return -1;
     }
 }
@@ -752,9 +777,13 @@ hubem_process_xact(usb_hubem_t dev, int ep,
         case GET_DESCRIPTOR:
             return hubem_get_descriptor(dev, req, buf, buf_len);
         case SET_CONFIGURATION:
+            DHUBEM("Unhandled transaction: SET_CONFIGURATION\n");
+            break;
         case SET_INTERFACE:
+            DHUBEM("Unhandled transaction: SET_INTERFACE\n");
+            break;
         case SET_ADDRESS:
-            /* We don't care about config or address we are */
+            DHUBEM("Unhandled transaction: SET_ADDRESS\n");
             break;
         case CLR_FEATURE:
         case SET_FEATURE:
@@ -785,7 +814,7 @@ usb_hubem_driver_init(void* token, int nports, int pwr_delay_ms,
     }
 
     h->token = token;
-    h->nports = nports;
+    h->hubem_nports = nports;
     h->pwr_delay_ms = pwr_delay_ms;
     h->set_pf = set_pf;
     h->clr_pf = clr_pf;
