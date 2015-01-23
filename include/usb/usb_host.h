@@ -93,7 +93,7 @@ struct usb_host {
     ps_dma_man_t* dman;
 
     /// Submit a transaction for transfer.
-    int (*schedule_xact)(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port,
+    int (*schedule_xact)(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_port,
                          enum usb_speed speed, int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact,
                          usb_cb_t cb, void* t);
     /// Cancel all transactions for a given device address

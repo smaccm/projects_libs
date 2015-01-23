@@ -637,6 +637,8 @@ _set_pf(void *token, int port, enum port_feature feature)
         v |= EHCI_PORT_POWER;
         break;
     case PORT_RESET:
+        /* HCHALTED bit in USBSTS should be a zero */
+        assert((edev->op_regs->usbsts & EHCISTS_HCHALTED) == 0);
         edev->bmreset_c = BIT(port);
         v &= ~EHCI_PORT_ENABLE;
         v |= EHCI_PORT_RESET;
@@ -648,6 +650,7 @@ _set_pf(void *token, int port, enum port_feature feature)
         msdelay(10); /* 7.1.7.5 of USB 0.2 10ms delay */
         *ps_reg &= ~EHCI_PORT_RESET;
         while (*ps_reg & EHCI_PORT_RESET);
+
         return 0;
     default:
         printf("Unknown feature %d\n", feature);
@@ -752,15 +755,15 @@ td_set_buf(struct TD* td, uintptr_t buf, int len)
     if (len && buf) {
         uintptr_t buf_end = buf + len;
         /* Write the first buffer if we are not page aligned */
-        if (len && (buf & 0xfff)) {
-            uint16_t offs = buf & ~0xfff;
-            td->buf[i++] = buf | offs;
-            buf += 0x1000 - offs;
+        if (buf & 0xfff) {
+            uint16_t offs = buf & 0xfff;
+            td->buf[i++] = buf;
+            buf = (buf & ~0xfff) + 0x1000;
         }
         /* Write subsequent pages */
         while (buf < buf_end) {
             if (i >= sizeof(td->buf) / sizeof(*td->buf)) {
-                DBG_MEM("Out of td buffers\n");
+                DBG_MEM("Out of TD buffer fields\n");
                 return -1;
             } else {
                 td->buf[i++] = buf;
@@ -842,14 +845,15 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
         /* Initialise TD */
         struct TD* td;
         uintptr_t ptd = 0;
-
+        int err;
         td = ps_dma_alloc_pinned(edev->dman, sizeof(*td), 32, 0, PS_MEM_NORMAL, &ptd);
         usb_assert(td);
 
         td->next = TDLP_INVALID;
         td->alt = TDLP_INVALID;
         td->token = 0;
-        td_set_buf(td, xact_get_paddr(&xact[i]), xact[i].len);
+        err = td_set_buf(td, xact_get_paddr(&xact[i]), xact[i].len);
+        usb_assert(!err);
         /* Transfer type */
         switch (xact[i].type) {
         case PID_INT  :
@@ -1157,7 +1161,6 @@ ehci_schedule_async(struct ehci_host* edev, struct QHn* qhn)
         udelay(1);
         stat = qhn_get_status(qhn);
     }
-
     /* Disable async schedule. */
     edev->op_regs->usbcmd &= ~EHCICMD_ASYNC_EN;
     while (edev->op_regs->usbsts & EHCICMD_ASYNC_EN);
@@ -1270,7 +1273,7 @@ _periodic_complete(struct ehci_host* edev)
 }
 
 static int
-ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port,
+ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_port,
                    enum usb_speed speed, int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact,
                    usb_cb_t cb, void* t)
 {
@@ -1279,7 +1282,7 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub
     usb_assert(hdev);
     usb_assert(hdev->pdata);
     edev = &hdev->pdata->edev;
-    if (hub_addr == 0) {
+    if (hub_addr == -1) {
         /* Send off to root handler... No need to create QHn */
         if (rate_ms) {
             return ehci_schedule_periodic_root(edev, xact, nxact, cb, t);
@@ -1498,6 +1501,7 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
 
     /* Check some params */
     nports = EHCI_HCS_N_PORTS(edev->cap_regs->hcsparams);
+    assert(nports > 0);
     usb_assert(nports < 32);
     edev->bmreset_c = 0;
     usb_assert(!(edev->cap_regs->hccparams & EHCI_HCC_64BIT));
