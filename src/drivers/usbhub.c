@@ -43,7 +43,7 @@
             dprintf(__VA_ARGS__);                       \
         }while(0)
 
-#ifdef HUB_DEBUG
+#ifdef HUBEM_DEBUG
 #define DHUBEM(...) printf("HUBEM   :" __VA_ARGS__)
 #else
 #define DHUBEM(...) do{}while(0)
@@ -736,7 +736,8 @@ hubem_get_status(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
             DHUBEM("Get Status: Failed to read status for port %d\n", port);
             return -1;
         } else {
-            DHUBEM("Get Status: Success s%d c%d\n", psts->wPortStatus, psts->wPortChange);
+            DHUBEM("Get Status: Success s0x%x c0x%0x on port %d\n",
+                   psts->wPortStatus, psts->wPortChange, port);
             return act_len;
         }
     } else {
