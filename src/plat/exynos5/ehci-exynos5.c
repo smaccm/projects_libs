@@ -83,7 +83,7 @@ usb_init_phy(ps_io_ops_t* io_ops)
 
     /* Enable */
     *REG32(_phy_regs, USBPHY_PHYCTRL_OFFSET) |= HOST_ENABLE;
-    udelay(10);
+    udelay(20);
 
     return 0;
 }
