@@ -872,7 +872,7 @@ usb_alloc_xact(ps_dma_man_t* dman, struct xact* xact, int nxact)
     int i;
     for (i = 0; i < nxact; i++) {
         if (xact[i].len) {
-            xact[i].vaddr = ps_dma_alloc_pinned(dman, 0x1000 + 0 * xact[i].len, 32, 0, PS_MEM_NORMAL, &xact[i].paddr);
+            xact[i].vaddr = ps_dma_alloc_pinned(dman, xact[i].len, 32, 0, PS_MEM_NORMAL, &xact[i].paddr);
             if (xact[i].vaddr == NULL) {
                 usb_destroy_xact(dman, xact, i);
                 return -1;
