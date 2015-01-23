@@ -824,7 +824,7 @@ usbdev_schedule_xact(usb_dev_t udev, int ep, int max_pkt,
     if (udev->hub) {
         hub_addr = udev->hub->addr;
     } else {
-        hub_addr = 0;
+        hub_addr = -1;
     }
     err = hdev->schedule_xact(hdev, udev->addr, hub_addr, udev->port, udev->speed, ep, max_pkt, rate,
                               xact, nxact, cb, token);
