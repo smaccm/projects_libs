@@ -756,7 +756,6 @@ td_set_buf(struct TD* td, uintptr_t buf, int len)
         uintptr_t buf_end = buf + len;
         /* Write the first buffer if we are not page aligned */
         if (buf & 0xfff) {
-            uint16_t offs = buf & 0xfff;
             td->buf[i++] = buf;
             buf = (buf & ~0xfff) + 0x1000;
         }
