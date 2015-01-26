@@ -107,6 +107,7 @@ eth_pwren(int state)
 {
     if (state) {
         pmic_ldo_cfg(&pmic, LDO_ETH, LDO_ON, 3300);
+        msdelay(40);
     } else {
         pmic_ldo_cfg(&pmic, LDO_ETH, LDO_OFF, 3300);
     }
