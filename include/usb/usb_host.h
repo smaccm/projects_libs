@@ -107,6 +107,32 @@ struct usb_host {
     struct usb_hc_data* pdata;
 };
 
+
+/**
+ * Schedules a USB transaction
+ * @param[in] hdev     The host controller that should be used for the transfer
+ * @param[in] addr     The destination USB device address
+ * @param[in] hub_addr The USB device address of the hub at which the destination
+ *                     device is connected. -1 must be used if the device is not
+ *                     connected to a hub (i.e. when it is the root hub).
+ *                     0 may be used if the device is a SPEED_FULL device.
+ * @param[in] hub_port The port at which the destination device is connected to
+ *                     its parent hub.
+ *                     0 may be used if the device is a SPEED_FULL device.
+ * @param[in] speed    The USB speed of the device.
+ * @param[in] ep       The destination endpoint of the destination device.
+ * @param[in] max_pkt  The maximum packet size supported by the provided endpoint.
+ * @param[in] rate_ms  The interval at which the packet should be scheduled.
+ *                     (0 if this packet should only be scheduled once.
+ * @param[in] xact     An array of packet descriptors.
+ * @param[in] nxact    The number of packet descriptors in the array.
+ * @param[in] cb       A callback function to call on completion.
+ *                     NULL will result in blocking operation.
+ * @param[in] t        A token to pass, unmodified, to the provided callback
+ *                     function on completion.
+ * @return             Negative values represent failure, otherwise, the
+ *                     number of bytes remaining to be transfered is returned.
+ */
 static inline int
 usb_hcd_schedule(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port, enum usb_speed speed,
                  int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact, usb_cb_t cb, void* t)

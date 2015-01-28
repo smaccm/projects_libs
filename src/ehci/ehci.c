@@ -149,8 +149,9 @@ struct TD {
 #define TDALTTDPTR_NAKCNT(x)   (((x) >> 1) & 0x7)
     uint32_t alt;
 #define TDTOK_DT               BIT(31)
-#define TDTOK_BYTES(x)         (((x) & 0x7fff) * BIT(16))
+#define TDTOK_BYTES(x)         (((x) & 0x7fff) << 16)
 #define TDTOK_BYTES_MASK       TDTOK_BYTES(0x7fff)
+#define TDTOK_GET_BYTES(x)     (((x) & TDTOK_BYTES_MASK) >> 16)
 #define TDTOK_IOC              BIT(15)
 #define TDTOK_C_PAGE(x)        (((x) & 0x7) * BIT(12))
 #define TDTOK_C_PAGE_MASK      TDTOK_C_PAGE(0x7)
@@ -373,7 +374,11 @@ qhn_get_status(struct QHn * qhn)
     return XACTSTAT_SUCCESS;
 }
 
-
+static int
+qhn_get_bytes_remaining(struct QHn *qhn)
+{
+    return TDTOK_GET_BYTES(qhn->qh->td_overlay.token);
+}
 
 /****** DEBUG printing *******/
 static const char*
@@ -1180,7 +1185,7 @@ ehci_schedule_async(struct ehci_host* edev, struct QHn* qhn)
         return -1;
     }
     /* TODO remove magic numbers */
-    v = (qh->td_overlay.token >> 16) & 0x7fff;
+    v = qhn_get_bytes_remaining(qhn);
     qhn_destroy(edev->dman, qhn);
     return v;
 }
