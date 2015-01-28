@@ -22,29 +22,41 @@
 #include <usb/drivers/usb3503_hub.h>
 
 
-#define USB2_HOST_CTRL_PADDR  0x12130000
-#define USB2_HOST_CTRL_SIZE   0x1000
-#define USB2_HOST_EHCI_PADDR  0x12110000
-#define USB2_HOST_EHCI_SIZE   0x1000
-#define USB2_HOST_OHCI_PADDR  0x12120000
-#define USB2_HOST_OHCI_SIZE   0x1000
-#define USB2_DEV_LINK_PADDR   0x12140000
-#define USB2_DEV_LINK_SIZE    0x1000
+#define USB2_HOST_CTRL_PADDR     0x12130000
+#define USB2_HOST_CTRL_SIZE      0x1000
+#define USB2_HOST_EHCI_PADDR     0x12110000
+#define USB2_HOST_EHCI_SIZE      0x1000
+#define USB2_HOST_OHCI_PADDR     0x12120000
+#define USB2_HOST_OHCI_SIZE      0x1000
+#define USB2_DEV_LINK_PADDR      0x12140000
+#define USB2_DEV_LINK_SIZE       0x1000
 
-#define USBPHY_PHYCTRL_OFFSET 0x000
+#define USBPHY_CTRL0_OFFSET      0x000
+#define USBPHY_CTRL1_OFFSET      0x010
+#define USBPHY_CTRL2_OFFSET      0x020
+#define USBPHY_EHCI_OFFSET       0x030
 
-#define HOST_ENABLE        (BIT(29) | BIT(28) | BIT(27) | BIT(26))
-#define HOST_FREQ_SEL(x)   ((x) * BIT(16))
-#define HOST_UTMI_RESET    BIT(2)
-#define HOST_LINK_RESET    BIT(1)
-#define HOST_PHY_RESET     BIT(0)
-#define HOST_RESET         (HOST_UTMI_RESET | HOST_LINK_RESET | HOST_PHY_RESET)
+#define USBPHY_CTRL_RESETALL     BIT(31)
+#define USBPHY_CTRL0_SRCSEL(x)   (((x) & 0x03) << 19)
+#define USBPHY_CTRLX_SRCSEL(x)   (((x) & 0x03) << 23)
+#define USBPHY_CTRL0_FREQ_SEL(x) (((x) & 0x07) << 16)
+#define USBPHY_CTRLX_FREQ_SEL(x) (((x) & 0x7F) << 16)
+#define USBPHY_CTRL_UTMI_RESET   BIT(2)
+#define USBPHY_CTRL_LINK_RESET   BIT(1)
+#define USBPHY_CTRL_PHY_RESET    BIT(0)
+#define USBPHY_CTRL_RESET        ( USBPHY_CTRL_UTMI_RESET | \
+                                   USBPHY_CTRL_LINK_RESET | \
+                                   USBPHY_CTRL_PHY_RESET  | \
+                                   USBPHY_CTRL_RESETALL   )
 
-#define REG32(base, offset) (volatile uint32_t*)((void*)(base) + (offset))
+#define USBPHY_EHCI_ENABLE       (BIT(29) | BIT(28) | BIT(27) | BIT(26))
 
-#define NRESET_GPIO     XEINT12
-#define HUBCONNECT_GPIO XEINT6
-#define NINT_GPIO       XEINT7
+#define REG32(base, offset)      (volatile uint32_t*)((void*)(base) + (offset))
+#define PHYREG32(base, o)        REG32(base, USBPHY_##o##_OFFSET)
+
+#define NRESET_GPIO              XEINT12
+#define HUBCONNECT_GPIO          XEINT6
+#define NINT_GPIO                XEINT7
 
 static volatile void* _phy_regs = NULL;
 
@@ -75,15 +87,21 @@ usb_init_phy(ps_io_ops_t* io_ops)
     exynos5_sysreg_init(io_ops, &_sysreg);
     exynos5_sysreg_usbphy_enable(USBPHY_USB2, &_sysreg);
 
-    /* Reset */
-    *REG32(_phy_regs, USBPHY_PHYCTRL_OFFSET) = HOST_FREQ_SEL(5) | HOST_RESET | BIT(20) | BIT(10);
+    /* Hold in reset */
+    *PHYREG32(_phy_regs, CTRL0) |= USBPHY_CTRL_RESET;
+    *PHYREG32(_phy_regs, CTRL1) |= USBPHY_CTRL_RESET;
+    *PHYREG32(_phy_regs, CTRL2) |= USBPHY_CTRL_RESET;
     udelay(10);
-    *REG32(_phy_regs, USBPHY_PHYCTRL_OFFSET) &= ~HOST_RESET;
-    udelay(20);
 
-    /* Enable */
-    *REG32(_phy_regs, USBPHY_PHYCTRL_OFFSET) |= HOST_ENABLE;
-    udelay(20);
+    /* Setup clocks and enable PHY */
+    *PHYREG32(_phy_regs, CTRL0) = USBPHY_CTRL0_FREQ_SEL(0x05) | USBPHY_CTRL0_SRCSEL(2) | BIT(10);
+    *PHYREG32(_phy_regs, CTRL1) = USBPHY_CTRLX_FREQ_SEL(0x24) | USBPHY_CTRLX_SRCSEL(2);
+    *PHYREG32(_phy_regs, CTRL2) = USBPHY_CTRLX_FREQ_SEL(0x24) | USBPHY_CTRLX_SRCSEL(2);
+
+    /* Enable the EHCI controller */
+    *PHYREG32(_phy_regs, EHCI) |= USBPHY_EHCI_ENABLE;
+
+    udelay(40);
 
     return 0;
 }
