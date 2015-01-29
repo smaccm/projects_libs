@@ -1266,9 +1266,7 @@ _periodic_complete(struct ehci_host* edev)
                     /* TODO */
                     _qhn_deschedule(edev, qhn);
                     *qhn_ptr = qhn->next;
-                    usb_assert(0);
-                    //continue;
-                    (void)qhn_ptr;
+                    continue;
                 }
                 break;
             case XACTSTAT_HOSTERROR:
