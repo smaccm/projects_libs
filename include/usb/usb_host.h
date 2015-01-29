@@ -76,10 +76,13 @@ static inline uintptr_t xact_get_paddr(struct xact* xact)
  * @param[in] token  An unmodified opaque token as passed to
  *                   the associated transacton request.
  * @param[in] stat   The status of the transaction.
+ * @param[in] rbytes The number of bytes remaining in the transaction.
+ *                   This value is generally 0 on successful transmission
+ *                   unless a short read or write occurs.
  * @return           1 if the transaction should be rescheduled,
  *                   otherwise, 0.
  */
-typedef int (*usb_cb_t)(void* token, enum usb_xact_status stat);
+typedef int (*usb_cb_t)(void* token, enum usb_xact_status stat, int rbytes);
 
 
 struct usb_host;

@@ -715,20 +715,27 @@ eth_process_status(struct netif* netif, uint32_t status)
 
 #if defined(ETH_ENABLE_IRQS)
 static int
-eth_irq_handler(void* token, enum usb_xact_status stat)
+eth_irq_handler(void* token, enum usb_xact_status stat, int bytes_remaining)
 {
     struct netif* netif = (struct netif*)token;
     struct usb_eth* eth;
     int err;
+    int len;
 
     assert(token);
     eth = netif_get_eth_driver(netif);
+    len = eth->int_xact.len - bytes_remaining;
 
     /* Check the status */
     if (stat != XACTSTAT_SUCCESS) {
         ETH_DBG(eth, "Received unsuccessful IRQ\n");
         return 1;
     }
+    if (len != 4) {
+        ETH_DBG(eth, "Unexpected number of bytes for INT packet (%d)\n", len);
+        return 1;
+    }
+
 
     ETH_DBG(eth, "Handling IRQ\n");
     err = eth_process_status(netif, *eth->intbm);

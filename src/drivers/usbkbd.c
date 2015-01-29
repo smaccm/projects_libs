@@ -279,22 +279,29 @@ kbd_update_repeat_rate(usb_kbd_t kbd)
 }
 
 static int
-kbd_irq_handler(void* token, enum usb_xact_status stat)
+kbd_irq_handler(void* token, enum usb_xact_status stat, int bytes_remaining)
 {
     usb_kbd_t kbd = (usb_kbd_t)token;
     uint8_t afn;
     uint8_t key;
     int new_rate = -1;
     char c;
+    int len;
+
     /* Check the status */
     if (stat != XACTSTAT_SUCCESS) {
         KBD_DBG(kbd, "Received unsucessful IRQ\n");
         return 1;
     }
+    len = kbd->int_xact->len - bytes_remaining;
+    if (len < 4) {
+        KBD_DBG(kbd, "Short read on INT packet (%d)\n", len);
+        return 1;
+    }
 #if defined(KBDIRQ_DEBUG)
     {
         int i;
-        for (i = 0; i < kbd->int_max_pkt; i++) {
+        for (i = 0; i < len; i++) {
             printf("[0x%02x]", kbd->new_keys[i]);
         }
         printf("\n");

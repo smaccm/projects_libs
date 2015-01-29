@@ -374,10 +374,16 @@ qhn_get_status(struct QHn * qhn)
     return XACTSTAT_SUCCESS;
 }
 
-static int
+static inline int
 qhn_get_bytes_remaining(struct QHn *qhn)
 {
     return TDTOK_GET_BYTES(qhn->qh->td_overlay.token);
+}
+
+static inline int
+qhn_cb(struct QHn *qhn, enum usb_xact_status stat)
+{
+    return qhn->cb(qhn->token, stat, qhn_get_bytes_remaining(qhn));
 }
 
 /****** DEBUG printing *******/
@@ -1226,7 +1232,7 @@ _root_irq(struct ehci_host* edev)
         }
     }
     /* Forward the IRQ */
-    resched = edev->irq_cb(edev->irq_token, XACTSTAT_SUCCESS);
+    resched = edev->irq_cb(edev->irq_token, XACTSTAT_SUCCESS, 0);
     if (!resched) {
         usb_assert(0);
     }
@@ -1253,7 +1259,7 @@ _periodic_complete(struct ehci_host* edev)
 #if defined(DEBUG_DES)
                 dump_qhn(qhn);
 #endif
-                if (qhn->cb(qhn->token, stat)) {
+                if (qhn_cb(qhn, stat)) {
                     _int_schedule(edev, qhn);
                     qhn->irq_pending = 0;
                 } else {
@@ -1379,7 +1385,7 @@ clear_periodic_xact(struct ehci_host* edev, uint8_t usb_addr)
             usb_assert(flist);
             EHCI_DBG(edev, "Removing QH INT node\n");
             /* Process and remove the QH node */
-            qhn->cb(qhn->token, XACTSTAT_CANCELLED);
+            qhn_cb(qhn, XACTSTAT_CANCELLED);
             /* Clear the QH from the periodic list */
             for (i = 0; i < edev->flist_size; i++) {
                 if (flist[i] == qhn->pqh) {
@@ -1415,7 +1421,7 @@ clear_async_xact(struct ehci_host* edev, uint8_t usb_addr)
                 EHCI_DBG(edev, "Removing async QH node\n");
                 /* Inform the driver */
                 if (this->cb) {
-                    this->cb(this->token, XACTSTAT_CANCELLED);
+                    qhn_cb(this, XACTSTAT_CANCELLED);
                 }
                 /* Remove from schedule */
                 paddr = this->next->pqh;

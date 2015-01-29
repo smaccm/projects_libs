@@ -372,12 +372,13 @@ _handle_port_change(usb_hub_t h, int port)
 }
 
 static int
-hub_irq_handler(void* token, enum usb_xact_status stat)
+hub_irq_handler(void* token, enum usb_xact_status stat, int bytes_remaining)
 {
     usb_hub_t h = (usb_hub_t)token;
     int i, j;
     int handled = 0;
     uint8_t* intbm;
+    int len = h->int_xact.len - bytes_remaining;
 
     /* Check the status */
     if (stat != XACTSTAT_SUCCESS) {
@@ -389,7 +390,7 @@ hub_irq_handler(void* token, enum usb_xact_status stat)
 
     intbm = h->intbm;
     assert(intbm == xact_get_vaddr(&h->int_xact));
-    for (i = 0; i < h->int_xact.len; i++) {
+    for (i = 0; i < len; i++) {
         /* Check if any bits have changed */
         if (intbm[i] == 0) {
             continue;
