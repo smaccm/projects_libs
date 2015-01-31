@@ -251,7 +251,8 @@ struct ehci_host {
     void* irq_token;
     uint32_t bmreset_c;
     /* Async schedule */
-    struct QHn* alist;
+    struct QHn* alist_head;
+    struct QHn* alist_tail;
     /* Periodic frame list */
     uint32_t* flist;
     uintptr_t pflist;
@@ -361,17 +362,27 @@ static enum usb_xact_status
 qhn_get_status(struct QHn * qhn)
 {
     int i;
-    for (i = 0; i < qhn->ntdns; i++) {
-        enum usb_xact_status stat;
-        stat = qtd_get_status(qhn->tdns[i].td);
-        if (stat != XACTSTAT_SUCCESS) {
-            return stat;
+    if (qhn->ntdns) {
+        for (i = 0; i < qhn->ntdns; i++) {
+            enum usb_xact_status stat;
+            stat = qtd_get_status(qhn->tdns[i].td);
+            if (stat != XACTSTAT_SUCCESS) {
+                return stat;
+            }
         }
+        /* If we get here, we should be able to assume success */
+        usb_assert(!(qhn->qh->td_overlay.token & TDTOK_ERROR));
+        usb_assert(!(qhn->qh->td_overlay.token & TDTOK_SACTIVE));
+        return XACTSTAT_SUCCESS;
+    } else {
+        return qtd_get_status(&qhn->qh->td_overlay);
     }
-    /* If we get here, we should be able to assume success */
-    usb_assert(!(qhn->qh->td_overlay.token & TDTOK_ERROR));
-    usb_assert(!(qhn->qh->td_overlay.token & TDTOK_SACTIVE));
-    return XACTSTAT_SUCCESS;
+}
+
+static inline int
+_qhn_is_active(struct QHn* qhn)
+{
+    return qhn->qh->td_overlay.token & TDTOK_SACTIVE;
 }
 
 static inline int
@@ -551,16 +562,17 @@ dump_qhn(struct QHn* qhn)
     set_colour(COL_DEF);
 }
 
-static void
+static void UNUSED
 dump_q(struct QHn* qhn)
 {
     int i = 1;
+    struct QHn* head = qhn;
     printf("\n");
-    while (qhn) {
+    do {
         printf("{QH %d}\n", i++);
         dump_qhn(qhn);
         qhn = qhn->next;
-    }
+    } while (qhn && qhn != head);
     printf("\n");
 }
 
@@ -943,6 +955,7 @@ _new_async_schedule(struct ehci_host* edev)
     }
     memset(qh, 0, sizeof(*qh));
     qhn->qh = qh;
+    qhn->next = qhn;
     qh->qhlptr = qhn->pqh | QHLP_TYPE_QH;
     qh->epc[0] = QHEPC0_H | QHEPC0_HSPEED;
     qh->td_cur = TDLP_INVALID;/* TODO check others */
@@ -950,7 +963,8 @@ _new_async_schedule(struct ehci_host* edev)
     qh->td_overlay.alt = TDLP_INVALID;
     qh->td_overlay.token = TDTOK_SHALTED;
     edev->op_regs->asynclistaddr = qhn->pqh;
-    edev->alist = qhn;
+    edev->alist_head = qhn;
+    edev->alist_tail = qhn;
     return 0;
 }
 
@@ -1088,7 +1102,7 @@ ehci_schedule_periodic_root(struct ehci_host* edev, struct xact *xact,
 }
 
 static int
-ehci_schedule_periodic(struct ehci_host* edev, struct QHn* qhn, int rate_ms, usb_cb_t cb, void* token)
+ehci_schedule_periodic(struct ehci_host* edev, struct QHn* qhn, int rate_ms)
 {
     uint32_t sched;
     uint32_t *list;
@@ -1131,75 +1145,108 @@ ehci_schedule_periodic(struct ehci_host* edev, struct QHn* qhn, int rate_ms, usb
     return 0;
 }
 
-static int
-ehci_schedule_async(struct ehci_host* edev, struct QHn* qhn)
+static enum usb_xact_status
+qhn_wait(struct QHn* qhn, int to_ms)
 {
-    struct QH *qh, *qh_head;
-    uint32_t qh_head_paddr;
     enum usb_xact_status stat;
-    uint32_t v;
-    if (edev->alist == NULL) {
-        int err;
-        err = _new_async_schedule(edev);
-        if (err) {
-            usb_assert(0);
-            return -1;
-        }
-    }
-    qh = qhn->qh;
-    qh_head = edev->alist->qh;
-    qh_head_paddr = edev->alist->pqh;
-    assert(qh);
-    assert(qh_head);
-    /* Add the the async chedule */
-    qh->qhlptr = qh_head_paddr | QHLP_TYPE_QH;
-    qh_head->qhlptr = qhn->pqh | QHLP_TYPE_QH;
-
-    /* Enable async. schedule. */
-    edev->op_regs->usbcmd |= EHCICMD_ASYNC_EN;
-    while (!(edev->op_regs->usbsts & EHCISTS_ASYNC_EN));
-
-    /* Wait for TDs to be processed. */
-    long count = 0;
-    stat = qhn_get_status(qhn);
-    while (stat != XACTSTAT_SUCCESS) {
-        if (count++ > 1000000UL || stat != XACTSTAT_PENDING) {
-            dump_q(qhn);
-            dump_edev(edev);
-            break;
-        }
-        udelay(1);
+    do {
         stat = qhn_get_status(qhn);
-    }
-    /* Disable async schedule. */
-    edev->op_regs->usbcmd &= ~EHCICMD_ASYNC_EN;
-    while (edev->op_regs->usbsts & EHCICMD_ASYNC_EN);
-
-    /* Clean up the async list */
-    qh_head->qhlptr = qh_head_paddr | QHLP_TYPE_QH;
+        if (stat != XACTSTAT_PENDING) {
+            break;
+        } else if (to_ms-- == 0) {
+            break;
+        } else {
+            msdelay(1);
+        }
+    } while (1);
 
     /* Check the result */
-    switch (qhn_get_status(qhn)) {
+    if (to_ms < 0) {
+        printf("USB timeout\n");
+    }
+    switch (stat) {
     case XACTSTAT_SUCCESS:
         break;
     case XACTSTAT_ERROR:
     case XACTSTAT_PENDING:
     case XACTSTAT_HOSTERROR:
     default:
-        printf("Bad status %d\n", qhn_get_status(qhn));
+        printf("Bad status %d\n", stat);
         dump_qhn(qhn);
-        return -1;
     }
-    /* TODO remove magic numbers */
-    v = qhn_get_bytes_remaining(qhn);
-    qhn_destroy(edev->dman, qhn);
-    return v;
+    return stat;
+}
+
+
+static int
+ehci_schedule_async(struct ehci_host* edev, struct QHn* qh_new)
+{
+    struct QHn *qh_cur;
+    uint32_t v;
+    assert(edev->alist_head);
+
+    qh_cur = edev->alist_tail;
+
+    /* HeadNew.HorizontalPtr = pHeadCurrent.HorizontalPtr */
+    qh_new->qh->qhlptr = qh_cur->qh->qhlptr;
+    qh_new->next = qh_cur->next;
+    /* pHeadCurrent.HorizontalPointer = paddr(pQueueHeadNew) */
+    qh_cur->qh->qhlptr = qh_new->pqh | QHLP_TYPE_QH;
+    qh_cur->next = qh_new;
+
+    /* Enable async. schedule. */
+    _enable_async(edev);
+
+    if (qh_new->cb == NULL) {
+        enum usb_xact_status stat;
+        /* Wait for TDs to be processed. */
+        stat = qhn_wait(qh_new, 3000);
+        _disable_async(edev);
+
+        /* Clean up the async list */
+        qh_cur->qh->qhlptr = qh_new->qh->qhlptr;
+        qh_cur->next = qh_new->next;
+
+        /* Clean up the QH */
+        v = qhn_get_bytes_remaining(qh_new);
+        qhn_destroy(edev->dman, qh_new);
+
+        if (stat == XACTSTAT_SUCCESS) {
+            return v;
+        } else {
+            return -1;
+        }
+    } else {
+        edev->alist_tail = qh_new;
+        return 0;
+    }
 }
 
 static void
 _async_complete(struct ehci_host* edev)
 {
-    (void)edev;
+    struct QHn *head, *prev;
+    assert(edev->alist_head);
+    assert(edev->alist_head->next);
+    prev = edev->alist_head;
+    head = edev->alist_head->next;
+    while (head != edev->alist_head) {
+        struct QHn* cur;
+        cur = head;
+        head = head->next;
+        if (!_qhn_is_active(cur)) {
+            assert(cur->cb);
+            /* Disconnect */
+            prev->qh->qhlptr = cur->qh->qhlptr;
+            prev->next = cur->next;
+            /* Now we handle and clean up cur */
+            qhn_cb(cur, qhn_get_status(cur));
+            qhn_destroy(edev->dman, cur);
+        } else {
+            /* Step over */
+            prev = cur;
+        }
+    }
 }
 
 static void
@@ -1263,9 +1310,12 @@ _periodic_complete(struct ehci_host* edev)
                     _int_schedule(edev, qhn);
                     qhn->irq_pending = 0;
                 } else {
-                    /* TODO */
-                    _qhn_deschedule(edev, qhn);
-                    *qhn_ptr = qhn->next;
+                    struct QHn* cur;
+                    cur = qhn;
+                    qhn = cur->next;
+                    *qhn_ptr = cur->next;
+                    _qhn_deschedule(edev, cur);
+                    qhn_destroy(edev->dman, cur);
                     continue;
                 }
                 break;
@@ -1295,7 +1345,7 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
         if (rate_ms) {
             return ehci_schedule_periodic_root(edev, xact, nxact, cb, t);
         } else {
-            return hubem_process_xact(edev->hubem, ep, xact, nxact);
+            return hubem_process_xact(edev->hubem, ep, xact, nxact, cb, t);
         }
     }
     /* Create the QHn */
@@ -1309,7 +1359,7 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
     dump_qhn(qhn);
 #endif
     if (rate_ms) {
-        return ehci_schedule_periodic(edev, qhn, rate_ms, cb, t);
+        return ehci_schedule_periodic(edev, qhn, rate_ms);
     } else {
         return ehci_schedule_async(edev, qhn);
     }
@@ -1407,7 +1457,7 @@ clear_async_xact(struct ehci_host* edev, uint8_t usb_addr)
 {
     struct QHn *prev, *this, *head;
     /* Clear from the async list. */
-    prev = head = edev->alist;
+    prev = head = edev->alist_head;
     if (head != NULL && head->next != head) {
         this = head->next;
         /* TODO this != NULL should be an assert since we either have a cirular
@@ -1533,7 +1583,8 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
     edev->hubem = hubem;
     edev->dman = hdev->dman;
     /* Terminate the periodic schedule head */
-    edev->alist = NULL;
+    edev->alist_head = NULL;
+    edev->alist_tail = NULL;
     edev->flist = NULL;
     edev->intn_list = NULL;
     /* Initialise IRQ */

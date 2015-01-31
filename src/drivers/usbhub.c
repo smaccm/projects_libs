@@ -749,8 +749,8 @@ hubem_get_status(usb_hubem_t dev, struct usbreq* req, void* buf, int len)
 
 
 int
-hubem_process_xact(usb_hubem_t dev, int ep,
-                   struct xact* xact, int nxact)
+hubem_process_xact(usb_hubem_t dev, int ep, struct xact* xact, int nxact,
+                   usb_cb_t cb, void* t)
 {
     struct usbreq* req;
     void* buf;
@@ -794,6 +794,13 @@ hubem_process_xact(usb_hubem_t dev, int ep,
         default:
             printf("Request code %d not supported\n",
                    req->bRequest);
+        }
+    }
+    if (cb) {
+        if (err >= 0) {
+            cb(t, XACTSTAT_SUCCESS, err);
+        } else {
+            cb(t, XACTSTAT_ERROR, err);
         }
     }
     return err;

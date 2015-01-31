@@ -62,7 +62,8 @@ int usb_hubem_driver_init(void* token, int nports, int pwr_delay_ms,
                           int (*get_pstat)(void* token, int port, struct port_status* ps),
                           usb_hubem_t* hub);
 
-int hubem_process_xact(usb_hubem_t hub, int ep, struct xact* xact, int nxact);
+int hubem_process_xact(usb_hubem_t hub, int ep, struct xact* xact, int nxact,
+                       usb_cb_t completion_callback, void* token);
 
 
 #endif /* _USB_DRIVERS_USBHUB_H_ */
