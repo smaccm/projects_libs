@@ -575,7 +575,7 @@ dump_q(struct QHn* qhn)
     printf("\n");
 }
 
-static void
+static void UNUSED
 dump_edev(struct ehci_host* edev)
 {
     uint32_t sts, cmd, intr;
@@ -1157,6 +1157,10 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         edev->op_regs->asynclistaddr = 0;
     } else {
         /* Remove single node from asynch schedule */
+        /* If we are removing the "Head", reassign it */
+        if (q->qh->epc[0] & QHEPC0_H) {
+            prev->qh->epc[0] |= QHEPC0_H;
+        }
         prev->qh->qhlptr = q->qh->qhlptr;
         prev->next = q->next;
     }
@@ -1179,6 +1183,7 @@ ehci_schedule_async(struct ehci_host* edev, struct QHn* qh_new)
     } else {
         /* New list */
         edev->alist_tail = qh_cur = qh_new;
+        qh_new->qh->epc[0] |= QHEPC0_H;
         qh_new->qh->qhlptr = qh_new->pqh | QHLP_TYPE_QH;
         qh_new->next = qh_new;
         edev->op_regs->asynclistaddr = qh_new->pqh;
@@ -1386,8 +1391,6 @@ ehci_handle_irq(usb_host_t* hdev)
         printf("Unhandled USB irq. Status: 0x%x\n", sts);
         usb_assert(!"Unhandled irq");
     }
-    /* TODO remove warnings */
-    (void)dump_edev;
 }
 
 static int
