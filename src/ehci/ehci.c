@@ -983,9 +983,6 @@ _new_periodic_schedule(struct ehci_host* edev, int size)
     v = edev->op_regs->usbcmd & ~EHCICMD_IRQTHRES_MASK;
     v |= EHCICMD_IRQTHRES(0x1);
     edev->op_regs->usbcmd = v;
-    v = edev->op_regs->usbintr;
-    v |= EHCIINTR_HOST_ERR | EHCIINTR_USBERRINT | EHCIINTR_USBINT;
-    edev->op_regs->usbintr = v;
     /* Enable the list */
     asm volatile("dmb");
     edev->op_regs->usbcmd |= EHCICMD_PERI_EN;
@@ -1354,15 +1351,15 @@ ehci_handle_irq(usb_host_t* hdev)
         EHCI_IRQDBG(edev, "INT - host error\n");
         edev->op_regs->usbsts = EHCISTS_HOST_ERR;
         sts &= ~EHCISTS_HOST_ERR;
-        _async_complete(edev);
         _periodic_complete(edev);
+        _async_complete(edev);
     }
     if (sts & EHCISTS_USBINT) {
         EHCI_IRQDBG(edev, "INT - USB\n");
         edev->op_regs->usbsts = EHCISTS_USBINT;
         sts &= ~EHCISTS_USBINT;
-        _async_complete(edev);
         _periodic_complete(edev);
+        _async_complete(edev);
     }
     if (sts & EHCISTS_FLIST_ROLL) {
         EHCI_DBG(edev, "INT - Frame list roll over\n");
@@ -1385,7 +1382,9 @@ ehci_handle_irq(usb_host_t* hdev)
     }
     if (sts & EHCISTS_ASYNC_ADV) {
         EHCI_IRQDBG(edev, "INT - async list advance\n");
-        usb_assert(!"USB ASYNC ADVANCE IRQ\n");
+        edev->op_regs->usbsts = EHCISTS_ASYNC_ADV;
+        sts &= ~EHCISTS_ASYNC_ADV;
+        _async_complete(edev);
     }
     if (sts) {
         printf("Unhandled USB irq. Status: 0x%x\n", sts);
@@ -1565,10 +1564,15 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
            EHCICMD_HCRESET);
     v |= EHCICMD_RUNSTOP;
     edev->op_regs->usbcmd = v;
-
     edev->op_regs->configflag |= EHCICFLAG_CFLAG;
     dsb();
     msdelay(5);
+
+    /* Enable Interrupts */
+    v = edev->op_regs->usbintr;
+    v |= EHCIINTR_HOST_ERR | EHCIINTR_USBERRINT
+         | EHCIINTR_USBINT | EHCIINTR_ASYNC_ADV;
+    edev->op_regs->usbintr = v;
 
     return 0;
 }
