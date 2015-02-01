@@ -1212,9 +1212,12 @@ _async_complete(struct ehci_host* edev)
         prev = tail = edev->alist_tail;
         do {
             cur = prev->next;
-            if (!_qhn_is_active(cur)) {
+            enum usb_xact_status stat;
+            stat = qhn_get_status(cur);
+            if (stat != XACTSTAT_PENDING) {
+                /* We should not be here unless a callback function was registered */
                 assert(cur->cb);
-                qhn_cb(cur, qhn_get_status(cur));
+                qhn_cb(cur, stat);
                 _async_remove_next(edev, prev);
             } else {
                 /* Step over */
@@ -1362,7 +1365,7 @@ ehci_handle_irq(usb_host_t* hdev)
         _async_complete(edev);
     }
     if (sts & EHCISTS_FLIST_ROLL) {
-        EHCI_DBG(edev, "INT - Frame list roll over\n");
+        EHCI_IRQDBG(edev, "INT - Frame list roll over\n");
         edev->op_regs->usbsts = EHCISTS_FLIST_ROLL;
         sts &= ~EHCISTS_FLIST_ROLL;
     }
