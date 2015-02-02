@@ -1158,6 +1158,11 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         if (q->qh->epc[0] & QHEPC0_H) {
             prev->qh->epc[0] |= QHEPC0_H;
         }
+        /* If we removed the tail, reassign it */
+        if (q == edev->alist_tail) {
+            edev->alist_tail = prev;
+        }
+
         prev->qh->qhlptr = q->qh->qhlptr;
         prev->next = q->next;
     }
@@ -1208,15 +1213,15 @@ _async_complete(struct ehci_host* edev)
 {
     if (edev->alist_tail) {
         struct QHn *cur, *prev, *tail;
-        /* We cache the tail due to distructive updated within the loop */
+        /* We cache the tail because edev->alist_tail may change during node removal */
         prev = tail = edev->alist_tail;
         do {
-            cur = prev->next;
             enum usb_xact_status stat;
+            cur = prev->next;
             stat = qhn_get_status(cur);
             if (stat != XACTSTAT_PENDING) {
-                /* We should not be here unless a callback function was registered */
                 assert(cur->cb);
+                /* Call the completion handler and remove cur. prev is updated to point to a new cur */
                 qhn_cb(cur, stat);
                 _async_remove_next(edev, prev);
             } else {
