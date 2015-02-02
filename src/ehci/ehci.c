@@ -252,6 +252,8 @@ struct ehci_host {
     uint32_t bmreset_c;
     /* Async schedule */
     struct QHn* alist_tail;
+    struct QHn* db_pending;
+    struct QHn* db_active;
     /* Periodic frame list */
     uint32_t* flist;
     uintptr_t pflist;
@@ -1166,7 +1168,8 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         prev->qh->qhlptr = q->qh->qhlptr;
         prev->next = q->next;
     }
-    qhn_destroy(edev->dman, q);
+    q->next = edev->db_pending;
+    edev->db_pending = q->next;
 }
 
 static int
@@ -1207,6 +1210,18 @@ ehci_schedule_async(struct ehci_host* edev, struct QHn* qh_new)
         return 0;
     }
 }
+
+static void
+_async_doorbell(struct ehci_host* edev)
+{
+    while (edev->db_active) {
+        struct QHn* qhn;
+        qhn = edev->db_active;
+        edev->db_active = qhn->next;
+        qhn_destroy(edev->dman, qhn);
+    }
+}
+
 
 static void
 _async_complete(struct ehci_host* edev)
@@ -1392,11 +1407,17 @@ ehci_handle_irq(usb_host_t* hdev)
         EHCI_IRQDBG(edev, "INT - async list advance\n");
         edev->op_regs->usbsts = EHCISTS_ASYNC_ADV;
         sts &= ~EHCISTS_ASYNC_ADV;
-        _async_complete(edev);
+        _async_doorbell(edev);
     }
     if (sts) {
         printf("Unhandled USB irq. Status: 0x%x\n", sts);
         usb_assert(!"Unhandled irq");
+    }
+    /* Ring the door bell if there are completed QH to clean up */
+    if (edev->db_active == NULL && edev->db_pending != NULL) {
+        edev->db_active = edev->db_pending;
+        edev->db_pending = NULL;
+        edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
     }
 }
 
@@ -1557,6 +1578,8 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
     edev->dman = hdev->dman;
     /* Terminate the periodic schedule head */
     edev->alist_tail = NULL;
+    edev->db_pending = NULL;
+    edev->db_active = NULL;
     edev->flist = NULL;
     edev->intn_list = NULL;
     /* Initialise IRQ */
