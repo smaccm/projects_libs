@@ -787,8 +787,9 @@ usbdev_disconnect(usb_dev_t udev)
         printf("calling device disconnect 0x%x\n", (uint32_t)udev->disconnect);
         udev->disconnect(udev);
     }
-    err = hdev->cancel_xact(hdev, udev->addr);
-    assert(!err);
+//    err = hdev->cancel_xact(hdev, udev->addr);
+//    assert(!err);
+    (void)hdev;
     devlist_remove(udev);
     if (udev->dev_data) {
         /* Stow this device if a driver is attached */

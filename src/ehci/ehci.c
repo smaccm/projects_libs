@@ -275,10 +275,11 @@ struct usb_hc_data {
  **** Helpers ****
  *****************/
 
-static inline uint8_t
-_qhn_get_dest_address(struct QHn* qhn)
-{
-    return qhn->owner_addr;
+static inline struct ehci_host*
+_hcd_to_ehci(usb_host_t* hcd) {
+    struct usb_hc_data* hc_data = (struct usb_hc_data*)hcd->pdata;
+    assert(hc_data);
+    return &hc_data->edev;
 }
 
 static inline int
@@ -1336,8 +1337,7 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
     struct QHn *qhn;
     struct ehci_host* edev;
     usb_assert(hdev);
-    usb_assert(hdev->pdata);
-    edev = &hdev->pdata->edev;
+    edev = _hcd_to_ehci(hdev);
     if (hub_addr == -1) {
         /* Send off to root handler... No need to create QHn */
         if (rate_ms) {
@@ -1366,7 +1366,7 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
 static void
 ehci_handle_irq(usb_host_t* hdev)
 {
-    struct ehci_host* edev = (struct ehci_host*)hdev->pdata;
+    struct ehci_host* edev = _hcd_to_ehci(hdev);
     uint32_t sts;
     sts = edev->op_regs->usbsts;
     sts &= edev->op_regs->usbintr;
@@ -1422,7 +1422,7 @@ ehci_handle_irq(usb_host_t* hdev)
 }
 
 static int
-clear_periodic_xact(struct ehci_host* edev, uint8_t usb_addr)
+clear_periodic_xact(struct ehci_host* edev, void* token)
 {
     struct QHn** qhn_ptr;
     struct QHn* qhn;
@@ -1430,34 +1430,34 @@ clear_periodic_xact(struct ehci_host* edev, uint8_t usb_addr)
     qhn_ptr = &edev->intn_list;
     qhn = edev->intn_list;
     while (qhn != NULL) {
-        if (qhn->owner_addr == usb_addr) {
-            uint32_t* flist = edev->flist;
+        if (qhn->token == token) {
+            uint32_t* flist;
             int i;
+            /* Clear the QH from the periodic list */
+            flist = edev->flist;
             usb_assert(qhn->pqh);
             usb_assert(flist);
-            EHCI_DBG(edev, "Removing QH INT node\n");
-            /* Process and remove the QH node */
-            qhn_cb(qhn, XACTSTAT_CANCELLED);
-            /* Clear the QH from the periodic list */
             for (i = 0; i < edev->flist_size; i++) {
                 if (flist[i] == qhn->pqh) {
-                    EHCI_DBG(edev, "Clearing frame list entry %d\n", i);
                     flist[i] = QHLP_INVALID;
                 }
             }
+            /* Process and remove the QH node */
+            qhn_cb(qhn, XACTSTAT_CANCELLED);
             *qhn_ptr = qhn->next;
             qhn_destroy(edev->dman, qhn);
             qhn = *qhn_ptr;
+            return 0;
         } else {
             qhn_ptr = &qhn->next;
             qhn = qhn->next;
         }
     }
-    return 0;
+    return -1;
 }
 
 static int
-clear_async_xact(struct ehci_host* edev, uint8_t usb_addr)
+clear_async_xact(struct ehci_host* edev, void* token)
 {
     /* Clear from the async list. */
     if (edev->alist_tail) {
@@ -1467,60 +1467,42 @@ clear_async_xact(struct ehci_host* edev, uint8_t usb_addr)
         do {
             cur = prev->next;
             assert(cur != NULL);
-            if (cur->owner_addr == usb_addr) {
+            if (cur->token == token) {
                 EHCI_DBG(edev, "Removing async QH node\n");
                 /* Inform the driver */
-                if (cur->cb) {
-                    qhn_cb(cur, XACTSTAT_CANCELLED);
-                }
+                qhn_cb(cur, XACTSTAT_CANCELLED);
                 _async_remove_next(edev, prev);
+                return 0;
             } else {
                 prev = cur;
             }
         } while (cur != tail);
     }
-    return 0;
+    return 1;
 }
 
 static int
-ehci_cancel_xact(usb_host_t* hdev, uint8_t usb_addr)
+ehci_cancel_xact(usb_host_t* hdev, void * token)
 {
-    struct ehci_host* edev = (struct ehci_host*)hdev->pdata;
-    volatile uint32_t* cmd_reg = &edev->op_regs->usbcmd;
-    volatile uint32_t* sts_reg = &edev->op_regs->usbsts;
-    uint32_t old_sts = *sts_reg;
-    UNUSED int err;
+    struct ehci_host* edev = _hcd_to_ehci(hdev);
 
-    /* Stop list traversal */
-    old_sts &= (EHCISTS_ASYNC_EN | EHCISTS_PERI_EN);
-    EHCI_DBG(edev, "Stopping schedules for xact cancellation\n");
-    *cmd_reg &= ~(EHCICMD_ASYNC_EN | EHCICMD_PERI_EN);
-    while (*sts_reg & (EHCISTS_ASYNC_EN | EHCISTS_PERI_EN));
-    /* Lets not confuse ourselves - handle error packets */
-    ehci_handle_irq(hdev);
-    /* Clear from periodic schedule */
-    EHCI_DBG(edev, "Cancelling from periodic schedule\n");
-    err = clear_periodic_xact(edev, usb_addr);
-    usb_assert(!err);
-    /* Re-enable the periodic list */
-    EHCI_DBG(edev, "Enabling periodic schedule\n");
-    if (old_sts & EHCISTS_PERI_EN) {
-        *cmd_reg |= EHCICMD_PERI_EN;
+    if (token != NULL) {
+        UNUSED int err;
+        /* Clear from periodic schedule */
+        EHCI_DBG(edev, "Cancelling from periodic schedule\n");
+        err = clear_periodic_xact(edev, token);
+        if (!err) {
+            return 0;
+        }
+
+        /* Clear from async schedule */
+        EHCI_DBG(edev, "Cancelling from async schedule\n");
+        err = clear_async_xact(edev, token);
+        if (!err) {
+            return 0;
+        }
     }
-    /* Clear from async schedule */
-    EHCI_DBG(edev, "Cancelling from async schedule\n");
-    err = clear_async_xact(edev, usb_addr);
-    usb_assert(!err);
-    /* Re-enable the async list */
-    EHCI_DBG(edev, "Enabling async schedule\n");
-    if (old_sts & EHCISTS_ASYNC_EN) {
-        *cmd_reg |= EHCICMD_ASYNC_EN;
-    }
-    /* Wait for lists to be re-enabled */
-    EHCI_DBG(edev, "Waiting for status update...\n");
-    while ((*sts_reg & old_sts) != old_sts);
-    EHCI_DBG(edev, "Finished clearing xact\n");
-    return 0;
+    return -1;
 }
 
 
@@ -1536,12 +1518,11 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
     int pwr_delay_ms;
     uint32_t v;
     int err;
-    hdev->pdata = (struct usb_hc_data*)usb_malloc(sizeof(*hdev->pdata));
+    hdev->pdata = (struct usb_hc_data*)usb_malloc(sizeof(struct usb_hc_data));
     if (hdev->pdata == NULL) {
-        usb_assert(0);
         return -1;
     }
-    edev = &hdev->pdata->edev;
+    edev = _hcd_to_ehci(hdev);
     edev->devid = hdev->id;
     edev->cap_regs = (volatile struct ehci_host_cap*)regs;
     edev->op_regs = (volatile struct ehci_host_op*)(regs + edev->cap_regs->caplength);
