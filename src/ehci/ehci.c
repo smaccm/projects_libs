@@ -1533,7 +1533,6 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
 {
     usb_hubem_t hubem;
     struct ehci_host* edev;
-    int nports;
     int pwr_delay_ms;
     uint32_t v;
     int err;
@@ -1552,9 +1551,9 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
     edev->board_pwren = board_pwren;
 
     /* Check some params */
-    nports = EHCI_HCS_N_PORTS(edev->cap_regs->hcsparams);
-    assert(nports > 0);
-    usb_assert(nports < 32);
+    hdev->nports = EHCI_HCS_N_PORTS(edev->cap_regs->hcsparams);
+    assert(usb_hcd_count_ports(hdev) > 0);
+    assert(usb_hcd_count_ports(hdev) < 32);
     edev->bmreset_c = 0;
     usb_assert(!(edev->cap_regs->hccparams & EHCI_HCC_64BIT));
 
@@ -1567,7 +1566,7 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
 
     /* Initialise the hub emulation */
     pwr_delay_ms = 100; /* Sample value from real hub */
-    err = usb_hubem_driver_init(edev, nports, pwr_delay_ms,
+    err = usb_hubem_driver_init(edev, hdev->nports, pwr_delay_ms,
                                 &_set_pf, &_clr_pf, &_get_pstat,
                                 &hubem);
     if (err) {

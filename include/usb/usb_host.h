@@ -91,6 +91,8 @@ typedef struct usb_host usb_host_t;
 struct usb_host {
     /// Device ID
     enum usb_host_id id;
+    /// Number of ports provided by this host controller
+    int nports;
 
     /// DMA allocator
     ps_dma_man_t* dman;
@@ -153,6 +155,12 @@ static inline void
 usb_hcd_handle_irq(usb_host_t* hdev)
 {
     hdev->handle_irq(hdev);
+}
+
+static inline int
+usb_hcd_count_ports(usb_host_t* hdev)
+{
+    return hdev->nports;
 }
 
 /**
