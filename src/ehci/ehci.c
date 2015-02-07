@@ -806,9 +806,8 @@ td_set_buf(struct TD* td, uintptr_t buf, int len)
 
 static struct QHn*
 qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
-        uint8_t hub_port, enum usb_speed speed,
-        int ep, int max_pkt, struct xact* xact,
-        int nxact, usb_cb_t cb, void* token) {
+        uint8_t hub_port, enum usb_speed speed, int ep, int max_pkt,
+        int dt, struct xact* xact, int nxact, usb_cb_t cb, void* token) {
     struct QHn *qhn;
     struct QH* qh;
     struct TD* prev_td;
@@ -893,10 +892,13 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
         default:
             usb_assert(0);
         };
-        if (i != 0 && xact[i].type != PID_SETUP) {
+        /* Data toggle */
+        if (xact[i].type == PID_SETUP) {
+            dt = 0;
+        }
+        if (dt++ & 1) {
             td->token |= TDTOK_DT;
         }
-
         /* etc */
         td->token |= TDTOK_BYTES(xact[i].len) |
                      TDTOK_C_ERR(3) |
@@ -1331,8 +1333,8 @@ _periodic_complete(struct ehci_host* edev)
 
 static int
 ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_port,
-                   enum usb_speed speed, int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact,
-                   usb_cb_t cb, void* t)
+                   enum usb_speed speed, int ep, int max_pkt, int rate_ms,
+                   int dt, struct xact* xact, int nxact, usb_cb_t cb, void* t)
 {
     struct QHn *qhn;
     struct ehci_host* edev;
@@ -1347,7 +1349,8 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
         }
     }
     /* Create the QHn */
-    qhn = qhn_new(edev, addr, hub_addr, hub_port, speed, ep, max_pkt, xact, nxact, cb, t);
+    qhn = qhn_new(edev, addr, hub_addr, hub_port, speed, ep, max_pkt,
+                  dt, xact, nxact, cb, t);
     if (qhn == NULL) {
         return -1;
     }

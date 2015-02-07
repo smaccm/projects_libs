@@ -741,8 +741,8 @@ usbdev_parse_config(usb_dev_t udev, usb_config_cb cb, void* t)
     req = xact_get_vaddr(&xact[0]);
     cd = xact_get_vaddr(&xact[1]);
     *req = __get_descriptor_req(CONFIGURATION, 0, xact[1].len);
-    err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0, xact,
-                               2, NULL, NULL);
+    err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0,
+                               xact, 2, NULL, NULL);
     if (err < 0) {
         usb_destroy_xact(udev->dman, xact, 2);
         assert(0);
@@ -762,8 +762,8 @@ usbdev_parse_config(usb_dev_t udev, usb_config_cb cb, void* t)
     req = xact_get_vaddr(&xact[0]);
     d = xact_get_vaddr(&xact[1]);
     *req = __get_descriptor_req(CONFIGURATION, 0, tot_len);
-    err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0, xact,
-                               2, NULL, NULL);
+    err = usbdev_schedule_xact(udev, 0, udev->max_pkt, 0,
+                               xact, 2, NULL, NULL);
     if (err < 0) {
         usb_destroy_xact(udev->dman, xact, sizeof(xact) / sizeof(*xact));
         return -1;
@@ -827,8 +827,8 @@ usbdev_schedule_xact(usb_dev_t udev, int ep, int max_pkt,
     } else {
         hub_addr = -1;
     }
-    err = hdev->schedule_xact(hdev, udev->addr, hub_addr, udev->port, udev->speed, ep, max_pkt, rate,
-                              xact, nxact, cb, token);
+    err = usb_hcd_schedule(hdev, udev->addr, hub_addr, udev->port, udev->speed,
+                           ep, max_pkt, rate, 0, xact, nxact, cb, token);
     return err;
 }
 

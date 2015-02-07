@@ -99,8 +99,8 @@ struct usb_host {
 
     /// Submit a transaction for transfer.
     int (*schedule_xact)(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_port,
-                         enum usb_speed speed, int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact,
-                         usb_cb_t cb, void* t);
+                         enum usb_speed speed, int ep, int max_pkt, int rate_ms, int dt,
+                         struct xact* xact, int nxact, usb_cb_t cb, void* t);
     /// Cancel all transactions for a given device address
     int (*cancel_xact)(usb_host_t* hdev, void* token);
     /// Handle an IRQ
@@ -129,6 +129,9 @@ struct usb_host {
  * @param[in] max_pkt  The maximum packet size supported by the provided endpoint.
  * @param[in] rate_ms  The interval at which the packet should be scheduled.
  *                     (0 if this packet should only be scheduled once.
+ * @param[in] dt       Data toggle bit. First packet will be sent to DATA<dt>
+ *                     where dt may be either 0 or 1. This field is ignored for
+ *                     SETUP transactions.
  * @param[in] xact     An array of packet descriptors.
  * @param[in] nxact    The number of packet descriptors in the array.
  * @param[in] cb       A callback function to call on completion.
@@ -139,10 +142,12 @@ struct usb_host {
  *                     number of bytes remaining to be transfered is returned.
  */
 static inline int
-usb_hcd_schedule(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port, enum usb_speed speed,
-                 int ep, int max_pkt, int rate_ms, struct xact* xact, int nxact, usb_cb_t cb, void* t)
+usb_hcd_schedule(usb_host_t* hdev, uint8_t addr, uint8_t hub_addr, uint8_t hub_port,
+                 enum usb_speed speed, int ep, int max_pkt, int rate_ms, int dt,
+                 struct xact* xact, int nxact, usb_cb_t cb, void* t)
 {
-    return hdev->schedule_xact(hdev, addr, hub_addr, hub_port, speed, ep, max_pkt, rate_ms, xact, nxact, cb, t);
+    return hdev->schedule_xact(hdev, addr, hub_addr, hub_port, speed, ep, max_pkt,
+                               rate_ms, dt, xact, nxact, cb, t);
 }
 
 /**
