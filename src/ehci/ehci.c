@@ -1434,17 +1434,7 @@ clear_periodic_xact(struct ehci_host* edev, void* token)
     qhn = edev->intn_list;
     while (qhn != NULL) {
         if (qhn->token == token) {
-            uint32_t* flist;
-            int i;
-            /* Clear the QH from the periodic list */
-            flist = edev->flist;
-            usb_assert(qhn->pqh);
-            usb_assert(flist);
-            for (i = 0; i < edev->flist_size; i++) {
-                if (flist[i] == qhn->pqh) {
-                    flist[i] = QHLP_INVALID;
-                }
-            }
+            _qhn_deschedule(edev, qhn);
             /* Process and remove the QH node */
             qhn_cb(qhn, XACTSTAT_CANCELLED);
             *qhn_ptr = qhn->next;
