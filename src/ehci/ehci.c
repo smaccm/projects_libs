@@ -639,7 +639,8 @@ static inline volatile uint32_t*
 _get_portsc(struct ehci_host* h, int port)
 {
     volatile uint32_t *reg;
-    usb_assert(port > 0 && port <= EHCI_HCS_N_PORTS(h->cap_regs->hcsparams));
+    assert(port > 0);
+    assert(port <= EHCI_HCS_N_PORTS(h->cap_regs->hcsparams));
     reg = &h->op_regs->portsc[port - 1];
     return reg;
 }
