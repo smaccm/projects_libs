@@ -814,11 +814,11 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
     struct TD* prev_td;
     int i;
 
-    usb_assert(nxact >= 1);
+    assert(nxact >= 1);
 
     /* Allocate book keeping node */
-    qhn = (struct QHn*)usb_malloc(sizeof(*qhn));
-    usb_assert(qhn);
+    qhn = (struct QHn*)malloc(sizeof(*qhn));
+    assert(qhn);
     qhn->ntdns = nxact;
     qhn->rate = 0;
     qhn->cb = cb;
@@ -828,7 +828,7 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
     qhn->next = NULL;
     /* Allocate QHead */
     qhn->qh = ps_dma_alloc_pinned(edev->dman, sizeof(*qh), 32, 0, PS_MEM_NORMAL, &qhn->pqh);
-    usb_assert(qhn->qh);
+    assert(qhn->qh);
     qh = qhn->qh;
     /** Initialise QH **/
     qh->qhlptr = QHLP_INVALID;
@@ -934,8 +934,9 @@ qhn_destroy(ps_dma_man_t* dman, struct QHn* qhn)
     for (i = 0; i < qhn->ntdns; i++) {
         ps_dma_free_pinned(dman, qhn->tdns[i].td, sizeof(*qhn->tdns[i].td));
     }
-    usb_free(qhn->tdns);
-    usb_free(qhn);
+    ps_dma_free_pinned(dman, qhn->qh, sizeof(*qhn->qh));
+    free(qhn->tdns);
+    free(qhn);
 }
 
 /**************************
@@ -1173,7 +1174,7 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         prev->next = q->next;
     }
     q->next = edev->db_pending;
-    edev->db_pending = q->next;
+    edev->db_pending = q;
 }
 
 static int
@@ -1421,7 +1422,13 @@ ehci_handle_irq(usb_host_t* hdev)
     if (edev->db_active == NULL && edev->db_pending != NULL) {
         edev->db_active = edev->db_pending;
         edev->db_pending = NULL;
-        edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
+        if (edev->op_regs->usbsts & EHCISTS_ASYNC_EN) {
+            /* Async list disabled. Clean up dangling QHn list */
+            _async_doorbell(edev);
+        } else {
+            /* Async is enabled, we must ring the doorbell and wait */
+            edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
+        }
     }
 }
 
@@ -1512,7 +1519,7 @@ ehci_host_init(usb_host_t* hdev, uintptr_t regs,
     int pwr_delay_ms;
     uint32_t v;
     int err;
-    hdev->pdata = (struct usb_hc_data*)usb_malloc(sizeof(struct usb_hc_data));
+    hdev->pdata = (struct usb_hc_data*)malloc(sizeof(struct usb_hc_data));
     if (hdev->pdata == NULL) {
         return -1;
     }
