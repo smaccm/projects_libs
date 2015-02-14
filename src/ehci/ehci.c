@@ -1154,7 +1154,17 @@ static void
 _async_remove_next(struct ehci_host* edev, struct QHn* prev)
 {
     struct QHn* q = prev->next;
-    assert(!_qhn_is_active(q));
+    /* Deactivate */
+    if (q->qh->td_overlay.token & TDTOK_SACTIVE) {
+        int i;
+        printf("Deactivating QH for removal\n");
+        for (i = 0; i < q->ntdns; i++) {
+            q->tdns[i].td->token &= ~TDTOK_SACTIVE;
+        }
+        while (q->qh->td_overlay.token & TDTOK_SACTIVE);
+        printf("Done\n");
+    }
+    /* Remove */
     if (prev == q) {
         _disable_async(edev);
         edev->alist_tail = NULL;
@@ -1173,6 +1183,7 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         prev->qh->qhlptr = q->qh->qhlptr;
         prev->next = q->next;
     }
+    /* Add to doorbell list for cleanup */
     q->next = edev->db_pending;
     edev->db_pending = q;
 }
