@@ -679,7 +679,7 @@ _set_pf(void *token, int port, enum port_feature feature)
 
         return 0;
     default:
-        printf("Unknown feature %d\n", feature);
+        printf("USB: Unknown feature %d\n", feature);
         return -1;
     }
     *ps_reg = v;
@@ -1434,11 +1434,11 @@ ehci_handle_irq(usb_host_t* hdev)
         edev->db_active = edev->db_pending;
         edev->db_pending = NULL;
         if (edev->op_regs->usbsts & EHCISTS_ASYNC_EN) {
-            /* Async list disabled. Clean up dangling QHn list */
-            _async_doorbell(edev);
-        } else {
             /* Async is enabled, we must ring the doorbell and wait */
             edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
+        } else {
+            /* Async list disabled. Clean up dangling QHn list */
+            _async_doorbell(edev);
         }
     }
 }
