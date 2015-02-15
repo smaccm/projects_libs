@@ -678,8 +678,16 @@ _set_pf(void *token, int port, enum port_feature feature)
         while (*ps_reg & EHCI_PORT_RESET);
 
         return 0;
+    case PORT_SUSPEND:
+        /* Must be enabled */
+        assert(*ps_reg & EHCI_PORT_ENABLE);
+        /* Must portowner 0 */
+        assert(!(*ps_reg & EHCI_PORT_OWNER));
+        /* Perform the Suspend */
+        v |= EHCI_PORT_SUSPEND;
+        break;
     default:
-        printf("USB: Unknown feature %d\n", feature);
+        printf("EHCI: Unknown feature %d for set feature request\n", feature);
         return -1;
     }
     *ps_reg = v;
@@ -718,8 +726,17 @@ _clr_pf(void *token, int port, enum port_feature feature)
             edev->board_pwren(port, 0);
         }
         break;
+    case PORT_SUSPEND:
+        /* Must be enabled */
+        assert(v & EHCI_PORT_ENABLE);
+        /* Must be in suspend state */
+        assert(v & EHCI_PORT_SUSPEND);
+        /* Perform the Suspend */
+        v |= EHCI_PORT_FORCE_RESUME;
+        break;
+
     default:
-        printf("Unknown feature %d\n", feature);
+        printf("EHCI: Unknown feature %d for clear feature request\n", feature);
         return -1;
     }
     udelay(10);
