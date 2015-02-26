@@ -365,6 +365,8 @@ qhn_get_status(struct QHn * qhn)
 {
     int i;
     if (qhn->ntdns) {
+        /* If the QHN has not been picked up by the HC yet, the
+         * overlay will not be valid. Check the status of the TDs */
         for (i = 0; i < qhn->ntdns; i++) {
             enum usb_xact_status stat;
             stat = qtd_get_status(qhn->tdns[i].td);
@@ -372,13 +374,9 @@ qhn_get_status(struct QHn * qhn)
                 return stat;
             }
         }
-        /* If we get here, we should be able to assume success */
-        usb_assert(!(qhn->qh->td_overlay.token & TDTOK_ERROR));
-        usb_assert(!(qhn->qh->td_overlay.token & TDTOK_SACTIVE));
-        return XACTSTAT_SUCCESS;
-    } else {
-        return qtd_get_status(&qhn->qh->td_overlay);
     }
+    /* All TDs complete, return the status of the QH */
+    return qtd_get_status(&qhn->qh->td_overlay);
 }
 
 static inline int
