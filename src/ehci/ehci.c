@@ -219,14 +219,14 @@ struct QH {
  ****************************/
 
 struct TDn {
-    struct TD* td;
+    volatile struct TD* td;
     uintptr_t ptd;
     struct xact xact;
 };
 
 struct QHn {
     /* Transaction data */
-    struct QH* qh;
+    volatile struct QH* qh;
     uintptr_t pqh;
     int ntdns;
     struct TDn* tdns;
@@ -343,7 +343,7 @@ _ehci_stop(struct ehci_host* edev)
 }
 
 static enum usb_xact_status
-qtd_get_status(struct TD* qtd)
+qtd_get_status(volatile struct TD* qtd)
 {
     uint32_t t = qtd->token;
     if (t & TDTOK_SXACTERR) {
@@ -417,7 +417,7 @@ dump_colour(enum usb_xact_status stat)
 }
 
 static void
-dump_qtd(struct TD* qtd)
+dump_qtd(volatile struct TD* qtd)
 {
     int pid;
     uint32_t tok;
@@ -491,7 +491,7 @@ static void
 dump_qhn(struct QHn* qhn)
 {
     uint32_t v;
-    struct QH* qh;
+    volatile struct QH* qh;
     const char* col;
     int i;
     col = dump_colour(qhn_get_status(qhn));
@@ -518,7 +518,7 @@ dump_qhn(struct QHn* qhn)
     }
     v = qh->epc[0];
     printf("+ epc0: 0x%08x| addr %d(%d); NAC reload %d;max pkt %d",
-           v, v & 0x3f, (v >> 8) & 0xf, v >> 28, (v >> 16) & 0x7ff);
+           v, v & 0x7f, (v >> 8) & 0xf, v >> 28, (v >> 16) & 0x7ff);
     if (v & (1 << 27)) {
         printf(";C");
     }
@@ -788,7 +788,7 @@ _get_pstat(void* token, int port, struct port_status* _ps)
  ****************************/
 
 static int
-td_set_buf(struct TD* td, uintptr_t buf, int len)
+td_set_buf(volatile struct TD* td, uintptr_t buf, int len)
 {
     int i = 0;
     usb_assert(td);
@@ -827,8 +827,8 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
         uint8_t hub_port, enum usb_speed speed, int ep, int max_pkt,
         int dt, struct xact* xact, int nxact, usb_cb_t cb, void* token) {
     struct QHn *qhn;
-    struct QH* qh;
-    struct TD* prev_td;
+    volatile struct QH* qh;
+    volatile struct TD* prev_td;
     int i;
 
     assert(nxact >= 1);
@@ -949,9 +949,9 @@ qhn_destroy(ps_dma_man_t* dman, struct QHn* qhn)
     dump_qhn(qhn);
 #endif
     for (i = 0; i < qhn->ntdns; i++) {
-        ps_dma_free_pinned(dman, qhn->tdns[i].td, sizeof(*qhn->tdns[i].td));
+        ps_dma_free_pinned(dman, (void*)qhn->tdns[i].td, sizeof(*qhn->tdns[i].td));
     }
-    ps_dma_free_pinned(dman, qhn->qh, sizeof(*qhn->qh));
+    ps_dma_free_pinned(dman, (void*)qhn->qh, sizeof(*qhn->qh));
     free(qhn->tdns);
     free(qhn);
 }
@@ -1026,8 +1026,8 @@ _new_periodic_schedule(struct ehci_host* edev, int size)
 static void
 _int_schedule(struct ehci_host* edev, struct QHn* qhn)
 {
-    struct QH* qh;
-    struct TD* td;
+    volatile struct QH* qh;
+    volatile struct TD* td;
     struct xact *xact;
     UNUSED int err;
     /* Pull out our pointers to the descriptors */
@@ -1190,7 +1190,7 @@ _async_remove_next(struct ehci_host* edev, struct QHn* prev)
         /* Remove single node from asynch schedule */
         /* If we are removing the "Head", reassign it */
         if (q->qh->epc[0] & QHEPC0_H) {
-            prev->qh->epc[0] |= QHEPC0_H;
+            q->next->qh->epc[0] |= QHEPC0_H;
         }
         /* If we removed the tail, reassign it */
         if (q == edev->alist_tail) {
