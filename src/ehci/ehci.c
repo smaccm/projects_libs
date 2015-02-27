@@ -235,6 +235,7 @@ struct QHn {
     usb_cb_t cb;
     void* token;
     int irq_pending;
+    int was_cancelled;
     /* Links */
     uint8_t owner_addr;
     struct QHn* next;
@@ -839,6 +840,7 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
     qhn->cb = cb;
     qhn->token = token;
     qhn->irq_pending = 0;
+    qhn->was_cancelled = 0;
     qhn->owner_addr = address;
     qhn->next = NULL;
     /* Allocate QHead */
@@ -1169,17 +1171,6 @@ static void
 _async_remove_next(struct ehci_host* edev, struct QHn* prev)
 {
     struct QHn* q = prev->next;
-    /* Deactivate */
-    if (q->qh->td_overlay.token & TDTOK_SACTIVE) {
-        int i;
-        printf("Deactivating QH for removal\n");
-        for (i = 0; i < q->ntdns; i++) {
-            q->tdns[i].td->token &= ~TDTOK_SACTIVE;
-        }
-        while (q->qh->td_overlay.token & TDTOK_SACTIVE);
-        printf("Done\n");
-    }
-    /* Remove */
     if (prev == q) {
         _disable_async(edev);
         edev->alist_tail = NULL;
@@ -1249,6 +1240,17 @@ _async_doorbell(struct ehci_host* edev)
         struct QHn* qhn;
         qhn = edev->db_active;
         edev->db_active = qhn->next;
+        if (qhn->was_cancelled) {
+            enum usb_xact_status stat;
+            assert(qhn->cb);
+            stat = qhn_get_status(qhn);
+            if (stat != XACTSTAT_PENDING) {
+                /* The transfer must have completed while it was being cancelled */
+                qhn_cb(qhn, stat);
+            } else {
+                qhn_cb(qhn, XACTSTAT_CANCELLED);
+            }
+        }
         qhn_destroy(edev->dman, qhn);
     }
 }
@@ -1395,6 +1397,25 @@ ehci_schedule_xact(usb_host_t* hdev, uint8_t addr, int8_t hub_addr, uint8_t hub_
 }
 
 static void
+check_doorbell(struct ehci_host* edev)
+{
+    if (_is_enabled_async(edev)) {
+        if (edev->db_active == NULL && edev->db_pending != NULL) {
+            /* Ring the bell */
+            edev->db_active = edev->db_pending;
+            edev->db_pending = NULL;
+            edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
+        }
+    } else {
+        /* Clean up all dangling transactions */
+        _async_doorbell(edev);
+        edev->db_active = edev->db_pending;
+        edev->db_pending = NULL;
+        _async_doorbell(edev);
+    }
+}
+
+static void
 ehci_handle_irq(usb_host_t* hdev)
 {
     struct ehci_host* edev = _hcd_to_ehci(hdev);
@@ -1444,18 +1465,8 @@ ehci_handle_irq(usb_host_t* hdev)
         printf("Unhandled USB irq. Status: 0x%x\n", sts);
         usb_assert(!"Unhandled irq");
     }
-    /* Ring the door bell if there are completed QH to clean up */
-    if (edev->db_active == NULL && edev->db_pending != NULL) {
-        edev->db_active = edev->db_pending;
-        edev->db_pending = NULL;
-        if (edev->op_regs->usbsts & EHCISTS_ASYNC_EN) {
-            /* Async is enabled, we must ring the doorbell and wait */
-            edev->op_regs->usbcmd |= EHCICMD_ASYNC_DB;
-        } else {
-            /* Async list disabled. Clean up dangling QHn list */
-            _async_doorbell(edev);
-        }
-    }
+
+    check_doorbell(edev);
 }
 
 static int
@@ -1496,8 +1507,8 @@ clear_async_xact(struct ehci_host* edev, void* token)
             assert(cur != NULL);
             if (cur->token == token) {
                 EHCI_DBG(edev, "Removing async QH node\n");
-                /* Inform the driver */
-                qhn_cb(cur, XACTSTAT_CANCELLED);
+                /* Remove it. The doorbell will notify the client */
+                cur->was_cancelled = 1;
                 _async_remove_next(edev, prev);
                 return 0;
             } else {
@@ -1528,6 +1539,9 @@ ehci_cancel_xact(usb_host_t* hdev, void * token)
         if (!err) {
             return 0;
         }
+
+        /* Cancel is not called from the ISR. Ring the bell or finalise heads. */
+        check_doorbell(edev);
     }
     return -1;
 }
