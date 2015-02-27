@@ -1537,11 +1537,10 @@ ehci_cancel_xact(usb_host_t* hdev, void * token)
         EHCI_DBG(edev, "Cancelling from async schedule\n");
         err = clear_async_xact(edev, token);
         if (!err) {
+            /* Cancel is not called from the ISR. Ring the bell or finalise heads. */
+            check_doorbell(edev);
             return 0;
         }
-
-        /* Cancel is not called from the ISR. Ring the bell or finalise heads. */
-        check_doorbell(edev);
     }
     return -1;
 }
