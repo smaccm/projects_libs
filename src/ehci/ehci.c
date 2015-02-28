@@ -1523,24 +1523,22 @@ static int
 ehci_cancel_xact(usb_host_t* hdev, void * token)
 {
     struct ehci_host* edev = _hcd_to_ehci(hdev);
-
     if (token != NULL) {
-        UNUSED int err;
+        int err;
         /* Clear from periodic schedule */
-        EHCI_DBG(edev, "Cancelling from periodic schedule\n");
         err = clear_periodic_xact(edev, token);
         if (!err) {
             return 0;
         }
 
         /* Clear from async schedule */
-        EHCI_DBG(edev, "Cancelling from async schedule\n");
         err = clear_async_xact(edev, token);
         if (!err) {
             /* Cancel is not called from the ISR. Ring the bell or finalise heads. */
             check_doorbell(edev);
             return 0;
         }
+        EHCI_DBG("Unable to find transaction for removal (0x%x)\n", (uint32_t)token);
     }
     return -1;
 }
