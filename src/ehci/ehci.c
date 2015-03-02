@@ -1506,7 +1506,6 @@ clear_async_xact(struct ehci_host* edev, void* token)
             cur = prev->next;
             assert(cur != NULL);
             if (cur->token == token) {
-                EHCI_DBG(edev, "Removing async QH node\n");
                 /* Remove it. The doorbell will notify the client */
                 cur->was_cancelled = 1;
                 _async_remove_next(edev, prev);
@@ -1538,7 +1537,7 @@ ehci_cancel_xact(usb_host_t* hdev, void * token)
             check_doorbell(edev);
             return 0;
         }
-        EHCI_DBG("Unable to find transaction for removal (0x%x)\n", (uint32_t)token);
+        EHCI_DBG(edev, "Unable to find transaction for removal (0x%x)\n", (uint32_t)token);
     }
     return -1;
 }
