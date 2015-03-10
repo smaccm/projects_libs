@@ -347,15 +347,21 @@ static enum usb_xact_status
 qtd_get_status(volatile struct TD* qtd)
 {
     uint32_t t = qtd->token;
-    if (t & TDTOK_SXACTERR) {
-        return XACTSTAT_ERROR;
-    } else if (t & TDTOK_ERROR) {
-        return XACTSTAT_HOSTERROR;
-    } else if (t & TDTOK_SACTIVE) {
+    if (t & TDTOK_SACTIVE) {
         /* Note that we have already returned an error code
          * if this TD is still pending due to an error in
          * a previous TD */
         return XACTSTAT_PENDING;
+
+    } else if (t & TDTOK_SHALTED){
+        if (t & TDTOK_SXACTERR) {
+            return XACTSTAT_ERROR;
+        } else if (t & TDTOK_ERROR) {
+            return XACTSTAT_HOSTERROR;
+        }
+        printf("EHCI: Unknown QTD error code 0x%x\n", t);
+        return XACTSTAT_HOSTERROR;
+
     } else {
         return XACTSTAT_SUCCESS;
     }
@@ -568,13 +574,13 @@ dump_q(struct QHn* qhn)
 {
     int i = 1;
     struct QHn* head = qhn;
-    printf("\n");
+    printf("##### Start Async list #####\n");
     do {
         printf("{QH %d}\n", i++);
         dump_qhn(qhn);
         qhn = qhn->next;
     } while (qhn && qhn != head);
-    printf("\n");
+    printf("##### End Async list #####\n");
 }
 
 static void UNUSED
@@ -889,7 +895,6 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
         int err;
         td = ps_dma_alloc_pinned(edev->dman, sizeof(*td), 32, 0, PS_MEM_NORMAL, &ptd);
         usb_assert(td);
-
         td->next = TDLP_INVALID;
         td->alt = TDLP_INVALID;
         td->token = 0;
@@ -914,7 +919,7 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
         if (xact[i].type == PID_SETUP) {
             dt = 0;
         }
-        if (dt++ & 1) {
+        if (dt++ & 1 || (xact[0].type == PID_SETUP && i == nxact - 1)) {
             td->token |= TDTOK_DT;
         }
         /* etc */
@@ -936,7 +941,6 @@ qhn_new(struct ehci_host* edev, uint8_t address, uint8_t hub_addr,
 #if defined(DEBUG_DES)
     dump_qhn(qhn);
 #endif
-
     return qhn;
 }
 
@@ -1268,6 +1272,12 @@ _async_complete(struct ehci_host* edev)
             cur = prev->next;
             stat = qhn_get_status(cur);
             if (stat != XACTSTAT_PENDING) {
+                if(stat == XACTSTAT_ERROR){
+                    printf("--- <Transfer error> ---\n");
+                    dump_qhn(cur);
+                    printf("------------------------\n");
+                }
+
                 assert(cur->cb);
                 /* Call the completion handler and remove cur. prev is updated to point to a new cur */
                 qhn_cb(cur, stat);
