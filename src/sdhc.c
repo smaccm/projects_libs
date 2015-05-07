@@ -10,35 +10,17 @@
 
 #include "sdhc.h"
 
-struct sdhc_dev {
-    struct dma_allocator* alloc;
-};
-
 /** Return the default SDHC interface ID for the platform
  * @return the device ID of the default SDHC interface for the
  *         running platform.
  */
-int sdhc_default_id(void){
+enum sdhc_id sdhc_default_id(void){
     return plat_sdhc_default_id();
 }
 
 
-/** Initialise and SDHC interface
- * @param[in]  id            The ID of the SDHC interface to
- *                           initialise
- * @param[out] sd_dev        On success, this will be filled with
- *                           a handle to the sdhc interface 
- *                           associated with the provided id.
- * @param[in]  dma_allocator a DMA memory allocator instance for
- *                           the SDHC interface to use.
- * @param[in]  io_ops        A structure defining operations for
- *                           device access.
- * @return                   Pointer to SDHC data.
- */
-sdhc_dev_t sdhc_init(int id, sdhc_dev_t* sd_dev,
-              struct dma_allocator* dma_allocator,
-              struct ps_io_mapper* io_map){
-    return sdhc_plat_init(id, NULL, dma_allocator, io_map); 
+sdhc_dev_t sdhc_init(enum sdhc_id id, ps_io_ops_t* io_ops, sdhc_dev_t* sd_dev){
+    return sdhc_plat_init(id, NULL, io_ops);
 }
 
 /** Pass control to the devices IRQ handler

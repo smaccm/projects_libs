@@ -34,17 +34,17 @@
 #define readw(a)      (*(volatile uint16_t*)(a))
 #define readb(a)      (*(volatile uint8_t*)(a))
 
-#define SDMMC0_PADDR 0x12510000
-#define SDMMC1_PADDR 0x12520000
-#define SDMMC2_PADDR 0x12530000
-#define SDMMC3_PADDR 0x12540000
-#define SDMMC4_PADDR 0x12550000
+#define SDHC0_PADDR 0x12510000
+#define SDHC1_PADDR 0x12520000
+#define SDHC2_PADDR 0x12530000
+#define SDHC3_PADDR 0x12540000
+#define SDHC4_PADDR 0x12550000
 
-#define SDMMC0_SIZE  0x1000
-#define SDMMC1_SIZE  0x1000
-#define SDMMC2_SIZE  0x1000
-#define SDMMC3_SIZE  0x1000
-#define SDMMC4_SIZE  0x1000
+#define SDHC0_SIZE  0x1000
+#define SDHC1_SIZE  0x1000
+#define SDHC2_SIZE  0x1000
+#define SDHC3_SIZE  0x1000
+#define SDHC4_SIZE  0x1000
 
 #define SDHC4_VADDR mem_data
 
@@ -52,7 +52,7 @@ struct sdhc {
 	volatile void   *base;
 	int             status;
 	struct mmc_card *card;
-	struct dma_allocator * dalloc;
+    ps_dma_man_t* dalloc;
 };
 
 /* Perform some type checking when getting/setting private data */
@@ -68,7 +68,7 @@ _mmc_set_sdhc(struct mmc_card* mmc, struct sdhc* sdhc){
 
 
 /** Print uSDHC registers. */
-static void print_sdhc_regs(struct sdhc *host)
+UNUSED static void print_sdhc_regs(struct sdhc *host)
 {
 	for (int i = DMA_ADDR; i <= HOST_VERSION; i += 0x4) {
 		printf("%x: %X\n", i, readl(host->base + i));
@@ -101,7 +101,7 @@ int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd)
 		writeb(0xE, host->base + TIMEOUT_CTRL);
 
 		/* Set DMA address */
-		writel(dma_paddr(cmd->data->dma_buf), host->base + DMA_ADDR);
+		writel(cmd->data->pbuf, host->base + DMA_ADDR);
 
 		val = readb(host->base + HOST_CTRL);
 		val &= ~(HOST_CTRL_DMA_MASK << HOST_CTRL_DMA_SHF);
@@ -490,18 +490,16 @@ int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 }
 
 sdhc_dev_t
-sdhc_plat_init(int id, mmc_card_t card,
-               struct dma_allocator* dma_allocator,
-               struct ps_io_mapper* o)
+sdhc_plat_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
 {
 	sdhc_dev_t sdhc;
     void* iobase;
     switch(id){
-    case 0: iobase = RESOURCE(o, SDMMC0); break;
-    case 1: iobase = RESOURCE(o, SDMMC1); break;
-    case 2: iobase = RESOURCE(o, SDMMC2); break;
-    case 3: iobase = RESOURCE(o, SDMMC3); break;
-    case 4: iobase = RESOURCE(o, SDMMC4); break;
+    case SDHC0: iobase = RESOURCE(io_ops, SDHC0); break;
+    case SDHC1: iobase = RESOURCE(io_ops, SDHC1); break;
+    case SDHC2: iobase = RESOURCE(io_ops, SDHC2); break;
+    case SDHC3: iobase = RESOURCE(io_ops, SDHC3); break;
+    case SDHC4: iobase = RESOURCE(io_ops, SDHC4); break;
     default:
         return NULL;
     }
@@ -520,7 +518,7 @@ sdhc_plat_init(int id, mmc_card_t card,
 	}
 	sdhc->card = card;
 	sdhc->base = iobase;
-	sdhc->dalloc = dma_allocator;
+	sdhc->dalloc = &io_ops->dma_manager;
 	_mmc_set_sdhc(sdhc->card, sdhc);
 
 	sdhc_reset(sdhc);
@@ -535,8 +533,8 @@ void sdhc_interrupt(void)
 	D(DBG_INFO, "SDHC intr fired ...\n");
 }
 
-int
+enum sdhc_id
 plat_sdhc_default_id(void){
-    return 2;
+    return SDHC_DEFAULT;
 }
 

@@ -110,16 +110,8 @@ static int mmc_decode_csd(mmc_card_t mmc_card, struct csd *csd)
 	return 0;
 }
 
-int mmc_default_id(void){
-    /* We may have an interface that is not sdhc? */
-    return plat_sdhc_default_id();
-}
-
-
 int
-mmc_init(int id, mmc_card_t* mmc_card,
-         struct dma_allocator* dma_allocator,
-         struct ps_io_mapper* io_map){
+mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
     mmc_card_t mmc;
     sdhc_dev_t sdhc = NULL;
 
@@ -131,13 +123,13 @@ mmc_init(int id, mmc_card_t* mmc_card,
     }
 
     /* Need some abstraction here... May not be an sdhc iface */
-    sdhc = sdhc_plat_init(id, mmc, dma_allocator, io_map);
+    sdhc = sdhc_plat_init(id, mmc, io_ops);
     assert(sdhc);
     if(!sdhc){
         free(mmc);
         return -1;
     }
-    mmc->dalloc = dma_allocator;
+    mmc->dalloc = &io_ops->dma_manager;
     *mmc_card = mmc;
     assert(mmc);
     return 0;
@@ -150,16 +142,16 @@ mmc_block_read(mmc_card_t mmc_card, unsigned long start,
      * of abstraction */
     /* Try write one block */
     struct mmc_data mdata;
-    dma_mem_t dma_buf;
     void* buf;
-    int bs = 512;
+    uintptr_t pbuf = 0;
+    int bs = mmc_block_size(mmc_card);
     int bytes = bs * nblocks;
     unsigned long ret;
     /* Allocate the dma buffer */
-    buf = dma_alloc(mmc_card->dalloc, bytes, 0x1000, DMAF_HRW, &dma_buf);
+    buf = ps_dma_alloc_pinned(mmc_card->dalloc, bytes, 0x1000, 0, PS_MEM_NORMAL, &pbuf);
     assert(buf);
     /* Populate the data descriptor */
-    mdata.dma_buf = dma_buf;
+    mdata.pbuf = pbuf;
     mdata.data_addr = start;
     mdata.block_size = bs;
     mdata.blocks = nblocks;
@@ -167,7 +159,7 @@ mmc_block_read(mmc_card_t mmc_card, unsigned long start,
     ret = sdhc_card_block_read(mmc_card, &mdata);
     /* Copy in the data */
     memcpy(data, buf, ret);
-    dma_free(dma_buf);
+    ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
     return ret;
 }
 
@@ -177,16 +169,16 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
     /* sdhc has a standard register set so this is a poor level
      * of abstraction */
     struct mmc_data mdata;
-    dma_mem_t dma_buf;
     void* buf;
-    int bs = 512;
+    uintptr_t pbuf = 0;
+    int bs = mmc_block_size(mmc_card);
     int bytes = bs * nblocks;
     unsigned long ret;
     /* Allocate the dma buffer */
-    buf = dma_alloc(mmc_card->dalloc, bytes, 0x1000, DMAF_HRW, &dma_buf);
+    buf = ps_dma_alloc_pinned(mmc_card->dalloc, bytes, 0x1000, 0, PS_MEM_NORMAL, &pbuf);
     assert(buf);
     /* Populate the data descriptor */
-    mdata.dma_buf = dma_buf;
+    mdata.pbuf = pbuf;
     mdata.data_addr = start;
     mdata.block_size = bs;
     mdata.blocks = nblocks;
@@ -194,7 +186,7 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
     memcpy(buf, data, bytes);
     /* Write the block */
     ret = sdhc_card_block_write(mmc_card, &mdata);
-    dma_free(dma_buf);
+    ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
     return ret;
 }
 

@@ -100,7 +100,7 @@ enum mmc_card_status {
 };
 
 struct mmc_data {
-	dma_mem_t  dma_buf;
+	uintptr_t  pbuf;
 	uint32_t   data_addr;
 	uint32_t   block_size;
 	uint32_t   blocks;
@@ -159,7 +159,7 @@ struct mmc_card {
 	uint32_t version;
 	uint32_t high_capacity;
 	uint32_t status;
-	struct dma_allocator* dalloc;
+	ps_dma_man_t* dalloc;
 };
 
 int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data);

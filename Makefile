@@ -23,7 +23,6 @@ HDRFILES := \
     $(wildcard ${SOURCE_DIR}/plat_include/$(PLAT)/*) \
     $(wildcard ${SOURCE_DIR}/arch_include/${ARCH}/*)
 
-INCLUDE_DIRS+=$(SOURCE_DIR)/src/include
-#INCLUDE_DIRS+=$(SOURCE_DIR)/src/drivers
+INCLUDE_DIRS+=$(SOURCE_DIR)/plat_include/$(PLAT)
 
 include $(SEL4_COMMON)/common.mk

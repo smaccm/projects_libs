@@ -47,7 +47,7 @@ struct sdhc {
 	volatile void   *base;
 	int             status;
 	struct mmc_card *card;
-    struct dma_allocator * dalloc;
+    ps_dma_man_t* dalloc;
 };
 
 /* Perform some type checking when getting/setting private data */
@@ -424,7 +424,7 @@ int sdhc_card_block_write(struct mmc_card *card, struct mmc_data *data)
 	/* Disable the buffer write ready interrupt. */
 
 	/* Configure DMA, and AC12EN bit. */
-	writel(dma_paddr(data->dma_buf), sdhc->base + DS_ADDR);
+	writel(data->pbuf, sdhc->base + DS_ADDR);
 
 	/* Start transfer */
 	cmd.index = MMC_WRITE_BLOCK;
@@ -457,18 +457,15 @@ int sdhc_card_block_write(struct mmc_card *card, struct mmc_data *data)
 
 int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 {
-	D(DBG_INFO, "\n");
-
 	int ret;
 	uint32_t val;
 	struct mmc_cmd cmd = {.data = data};
-    	struct sdhc* sdhc = _mmc_get_sdhc(card);
+	struct sdhc* sdhc = _mmc_get_sdhc(card);
 
 	/* Set the same length and number of blocks to the uSDHC register. */
 	val = data->block_size;
 	val |= (data->blocks << BLK_ATT_BLKCNT_SHF);
 	writel(val, sdhc->base + BLK_ATT);
-	D(DBG_INFO, "\n");
 
 	/* Set watermark level */
 	val = data->block_size / 4;
@@ -477,7 +474,6 @@ int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 	}
 	val = (val << WTMK_LVL_RD_WML_SHF);
 	writel(val, sdhc->base + WTMK_LVL);
-	D(DBG_INFO, "\n");
 
 	/* Set Mixer Control */
 	val = readl(sdhc->base + MIX_CTRL);
@@ -489,13 +485,11 @@ int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 	val |= MIX_CTRL_DTDSEL;
 	val |= MIX_CTRL_DMAEN;
 	writel(val, sdhc->base + MIX_CTRL);
-	D(DBG_INFO, "\n");
 
 	/* Disable the buffer write ready interrupt. */
 
 	/* Configure DMA, and AC12EN bit. */
-	writel(dma_paddr(data->dma_buf), sdhc->base + DS_ADDR);
-	D(DBG_INFO, "\n");
+	writel(data->pbuf, sdhc->base + DS_ADDR);
 
 	/* Start transfer */
 	cmd.index = MMC_READ_SINGLE_BLOCK;
@@ -508,15 +502,16 @@ int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 
 	cmd.rsp_type = MMC_RSP_TYPE_R1;
 	ret = sdhc_send_cmd(sdhc, &cmd);
-	D(DBG_INFO, "\n");
 	if (ret) {
 		D(DBG_INFO, "Read single block error.\n");
 	}
 
 	/* Wait for the transfer completion. */
+	D(DBG_INFO, "Waiting for read transaction completion\n");
 	do {
 		val = readl(sdhc->base + INT_STATUS);
 	} while (!(val & (INT_STATUS_TC | INT_STATUS_DTOE)));
+	D(DBG_INFO, "Read transaction completed\n");
 
 	/* Check CRC error. */
 	if (val & INT_STATUS_DTOE) {
@@ -528,17 +523,15 @@ int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
 }
 
 sdhc_dev_t
-sdhc_plat_init(int id, mmc_card_t card,
-               struct dma_allocator* dma_allocator,
-               struct ps_io_mapper* o)
+sdhc_plat_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
 {
 	sdhc_dev_t sdhc;
     void* iobase;
     switch(id){
-    case 1: iobase = RESOURCE(o, SDHC1); break;
-    case 2: iobase = RESOURCE(o, SDHC2); break;
-    case 3: iobase = RESOURCE(o, SDHC3); break;
-    case 4: iobase = RESOURCE(o, SDHC4); break;
+    case SDHC1: iobase = RESOURCE(io_ops, SDHC1); break;
+    case SDHC2: iobase = RESOURCE(io_ops, SDHC2); break;
+    case SDHC3: iobase = RESOURCE(io_ops, SDHC3); break;
+    case SDHC4: iobase = RESOURCE(io_ops, SDHC4); break;
     default:
         return NULL;
     }
@@ -557,7 +550,7 @@ sdhc_plat_init(int id, mmc_card_t card,
 	}
 	sdhc->card = card;
 	sdhc->base = iobase;
-	sdhc->dalloc = dma_allocator;
+	sdhc->dalloc = &io_ops->dma_manager;
 	_mmc_set_sdhc(sdhc->card, sdhc);
 
 	sdhc_reset(sdhc);
@@ -573,8 +566,8 @@ void sdhc_interrupt(void)
 	D(DBG_INFO, "SDHC intr fired ...\n");
 }
 
-int
+enum sdhc_id
 plat_sdhc_default_id(void){
-    return 4;
+    return SDHC_DEFAULT;
 }
 

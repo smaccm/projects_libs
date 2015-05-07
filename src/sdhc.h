@@ -14,8 +14,6 @@
 #include <sdhc/sdhc.h>
 #include "mmc.h"
 
-struct dma_allocator;
-struct ps_io_mapper;
 struct sdhc;
 
 #define swab(x) __be32_to_cpu(x)
@@ -36,16 +34,13 @@ __be32_to_cpu(uint32_t x){
 /* Interface for platform specific code */
 
 /* void sdhc_plat_init(void) */
-extern sdhc_dev_t sdhc_plat_init(int id, mmc_card_t card,
-                          struct dma_allocator* dma_allocator,
-                          struct ps_io_mapper* io_map);
-
+sdhc_dev_t sdhc_plat_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops);
 
 int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd);
 void sdhc_plat_reset(struct sdhc *host);
 void sdhc_plat_interrupt(void);
 
-extern int plat_sdhc_default_id(void);
+enum sdhc_id plat_sdhc_default_id(void);
 
 
 #endif /* _SDHC_H_ */

@@ -13,6 +13,7 @@
 
 #include <platsupport/io.h>
 #include <dma/dma.h>
+#include <sdhc/sdhc.h>
 
 typedef struct mmc_card* mmc_card_t;
 
@@ -20,25 +21,27 @@ typedef struct mmc_card* mmc_card_t;
  * @return the device ID of the default SDHC interface for the
  *         running platform.
  */
-int mmc_default_id(void);
+static inline int mmc_default_id(void)
+{
+    return sdhc_default_id();
+}
 
-
+static inline int mmc_block_size(mmc_card_t mmc_card)
+{
+    return 512;
+}
 
 /** Initialise an MMC card
  * @param[in]  id            The ID of the interface to
  *                           probe
+ * @param[in]  io_ops        Handle to a structure which provides IO
+ *                           and DMA operations.
  * @param[out] mmc_card      On success, this will be filled with
  *                           a handle to the MMC card 
  *                           associated with the provided id.
- * @param[in]  dma_allocator a DMA memory allocator instance for
- *                           the SDHC interface to use.
- * @param[in]  io_mapper     A structure defining operations for
- *                           device access.
  * @return                   0 on success.
  */
-int mmc_init(int id, mmc_card_t* mmc_card,
-              struct dma_allocator* dma_allocator,
-              struct ps_io_mapper* io_map);
+int mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
 
 /** Read blocks from the MMC
  * @param[in] mmc_card  A handle to an initialised MMC card
@@ -47,7 +50,7 @@ int mmc_init(int id, mmc_card_t* mmc_card,
  * @param[in] buf       The address of a buffer to read the data into
  * @return              The number of bytes read, 0 on failure.
  */
-unsigned long mmc_block_read(mmc_card_t mmc_card, 
+unsigned long mmc_block_read(mmc_card_t mmc_card,
                              unsigned long start,
                              int nblocks,
                              void* data);
