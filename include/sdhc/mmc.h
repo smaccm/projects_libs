@@ -45,25 +45,25 @@ int mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
 
 /** Read blocks from the MMC
  * @param[in] mmc_card  A handle to an initialised MMC card
- * @param[in] start     the start address of the operation
+ * @param[in] start     the starting block number of the operation
  * @param[in] nblocks   The number of blocks to read
  * @param[in] buf       The address of a buffer to read the data into
  * @return              The number of bytes read, 0 on failure.
  */
 unsigned long mmc_block_read(mmc_card_t mmc_card,
-                             unsigned long start,
+                             unsigned long start_block,
                              int nblocks,
                              void* data);
 
 /** Write blocks to the MMC
  * @param[in] mmc_card  A handle to an initialised MMC card
- * @param[in] start     The start address of the operation
+ * @param[in] start     The starting block number of the operation
  * @param[in] nblocks   The number of blocks to write
  * @param[in] buf       The address of a buffer that contains the data to be written
  * @return              The number of bytes read, 0 on failure.
  */
 unsigned long mmc_block_write(mmc_card_t mmc_card, 
-                             unsigned long start,
+                             unsigned long start_block,
                              int nblocks,
                              const void* data);
 
