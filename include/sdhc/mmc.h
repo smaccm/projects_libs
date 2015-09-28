@@ -13,7 +13,7 @@
 
 #include <platsupport/io.h>
 #include <dma/dma.h>
-#include <sdhc/sdhc.h>
+#include <sdhc/plat/sdhc.h>
 
 typedef struct mmc_card* mmc_card_t;
 
@@ -21,10 +21,7 @@ typedef struct mmc_card* mmc_card_t;
  * @return the device ID of the default SDHC interface for the
  *         running platform.
  */
-static inline int mmc_default_id(void)
-{
-    return sdhc_default_id();
-}
+enum sdhc_id mmc_default_id(void);
 
 static inline int mmc_block_size(mmc_card_t mmc_card)
 {

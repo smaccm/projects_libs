@@ -17,97 +17,97 @@
 
 static uint32_t slice_bits(uint32_t *val, int start, int size)
 {
-	int idx;
-	int high, low;
-	uint32_t ret = 0;
+    int idx;
+    int high, low;
+    uint32_t ret = 0;
 
-	/* Can not return more than 32 bits. */
-	assert(size <= 32);
+    /* Can not return more than 32 bits. */
+    assert(size <= 32);
 
-	idx = start / 32;
-	low = start % 32;
-	high = (start + size) % 32;
+    idx = start / 32;
+    low = start % 32;
+    high = (start + size) % 32;
 
-	if (high == 0 && low == 0) {
-		ret = val[idx];
-	} else if (high == 0 && low != 0) {
-		ret = val[idx] >> low;
-	} else {
-		if (high > low) {
-			ret = val[idx] & ((1U << high) - 1);
-			ret = ret >> low;
-		} else {
-			ret = val[idx] >> low;
-			ret |= (val[idx + 1] & ((1U << high) - 1)) << (32 - low);
-		}
+    if (high == 0 && low == 0) {
+        ret = val[idx];
+    } else if (high == 0 && low != 0) {
+        ret = val[idx] >> low;
+    } else {
+        if (high > low) {
+            ret = val[idx] & ((1U << high) - 1);
+            ret = ret >> low;
+        } else {
+            ret = val[idx] >> low;
+            ret |= (val[idx + 1] & ((1U << high) - 1)) << (32 - low);
+        }
 
-	}
+    }
 
-	return ret;
+    return ret;
 }
 
 #if 0 /* Commenting this out as it appears unused. */
 static int mmc_decode_cid(mmc_card_t mmc_card, struct cid *cid)
 {
-	if (mmc_card == NULL || cid == NULL) {
-		return -1;
-	}
+    if (mmc_card == NULL || cid == NULL) {
+        return -1;
+    }
 
-	if (mmc_card->type == CARD_TYPE_SD) {
-		cid->manfid         = slice_bits(mmc_card->raw_cid, 120,  8);
-		cid->sd_cid.oemid   = slice_bits(mmc_card->raw_cid, 104, 16);
-		cid->sd_cid.name[0] = slice_bits(mmc_card->raw_cid,  96,  8);
-		cid->sd_cid.name[1] = slice_bits(mmc_card->raw_cid,  88,  8);
-		cid->sd_cid.name[2] = slice_bits(mmc_card->raw_cid,  80,  8);
-		cid->sd_cid.name[3] = slice_bits(mmc_card->raw_cid,  72,  8);
-		cid->sd_cid.name[4] = slice_bits(mmc_card->raw_cid,  64,  8);
-		cid->sd_cid.rev     = slice_bits(mmc_card->raw_cid,  56,  8);
-		cid->sd_cid.serial  = slice_bits(mmc_card->raw_cid,  24, 32);
-		cid->sd_cid.date    = slice_bits(mmc_card->raw_cid,   8, 12);
+    if (mmc_card->type == CARD_TYPE_SD) {
+        cid->manfid         = slice_bits(mmc_card->raw_cid, 120,  8);
+        cid->sd_cid.oemid   = slice_bits(mmc_card->raw_cid, 104, 16);
+        cid->sd_cid.name[0] = slice_bits(mmc_card->raw_cid,  96,  8);
+        cid->sd_cid.name[1] = slice_bits(mmc_card->raw_cid,  88,  8);
+        cid->sd_cid.name[2] = slice_bits(mmc_card->raw_cid,  80,  8);
+        cid->sd_cid.name[3] = slice_bits(mmc_card->raw_cid,  72,  8);
+        cid->sd_cid.name[4] = slice_bits(mmc_card->raw_cid,  64,  8);
+        cid->sd_cid.rev     = slice_bits(mmc_card->raw_cid,  56,  8);
+        cid->sd_cid.serial  = slice_bits(mmc_card->raw_cid,  24, 32);
+        cid->sd_cid.date    = slice_bits(mmc_card->raw_cid,   8, 12);
 
-		printf("manfid(%x), oemid(%x), name(%c%c%c%c%c), rev(%x), serial(%x), date(%x)\n",
-			cid->manfid, cid->sd_cid.oemid,
-			cid->sd_cid.name[0], cid->sd_cid.name[1], cid->sd_cid.name[2],
-			cid->sd_cid.name[3], cid->sd_cid.name[4],
-			cid->sd_cid.rev, cid->sd_cid.serial, cid->sd_cid.date);
-	} else {
-		printf("Not Implemented!\n");
-		return -1;
-	}
+        printf("manfid(%x), oemid(%x), name(%c%c%c%c%c), rev(%x), serial(%x), date(%x)\n",
+            cid->manfid, cid->sd_cid.oemid,
+            cid->sd_cid.name[0], cid->sd_cid.name[1], cid->sd_cid.name[2],
+            cid->sd_cid.name[3], cid->sd_cid.name[4],
+            cid->sd_cid.rev, cid->sd_cid.serial, cid->sd_cid.date);
+    } else {
+        printf("Not Implemented!\n");
+        return -1;
+    }
 
-	return 0;
+    return 0;
 }
 #endif
 
 static int mmc_decode_csd(mmc_card_t mmc_card, struct csd *csd)
 {
-	if (mmc_card == NULL || csd == NULL) {
-		return -1;
-	}
+    if (mmc_card == NULL || csd == NULL) {
+        return -1;
+    }
 
 #define CSD_BITS(start, size) \
-	slice_bits(mmc_card->raw_csd, start, size)
+    slice_bits(mmc_card->raw_csd, start, size)
 
-	csd->structure = CSD_BITS(126, 2);
+    csd->structure = CSD_BITS(126, 2);
 
-	if (csd->structure == 0) {
-		printf("CSD Version 1.0\n");
-		csd->c_size      = CSD_BITS(62, 12);
-		csd->c_size_mult = CSD_BITS(47,  3);
-		csd->read_bl_len = CSD_BITS(80,  4);
-		csd->tran_speed  = CSD_BITS(96,  8);
-	} else if (csd->structure == 1) {
-		printf("CSD Version 2.0\n");
-		csd->c_size      = CSD_BITS(48, 22);
-		csd->c_size_mult = 0;
-		csd->read_bl_len = CSD_BITS(80,  4);
-		csd->tran_speed  = CSD_BITS(96,  8);
-	} else {
-		printf("Unknown CSD version!\n");
-		return -1;
-	}
+    if (csd->structure == 0) {
+        printf("CSD Version 1.0\n");
+        csd->c_size      = CSD_BITS(62, 12);
+        csd->c_size_mult = CSD_BITS(47,  3);
+        csd->read_bl_len = CSD_BITS(80,  4);
+        csd->tran_speed  = CSD_BITS(96,  8);
+    } else if (csd->structure == 1) {
+        printf("CSD Version 2.0\n");
+        csd->c_size      = CSD_BITS(48, 22);
+        csd->c_size_mult = 0;
+        csd->read_bl_len = CSD_BITS(80,  4);
+        csd->tran_speed  = CSD_BITS(96,  8);
+    } else {
+        printf("Unknown CSD version!\n");
+        return -1;
+    }
 
-	return 0;
+    return 0;
 }
 
 int
@@ -123,7 +123,7 @@ mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
     }
 
     /* Need some abstraction here... May not be an sdhc iface */
-    sdhc = sdhc_plat_init(id, mmc, io_ops);
+    sdhc = sdhc_init(id, mmc, io_ops);
     assert(sdhc);
     if(!sdhc){
         free(mmc);
@@ -192,24 +192,30 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
 
 unsigned long long
 mmc_card_capacity(mmc_card_t mmc_card) {
-	int ret;
-	unsigned long long capacity;
-	struct csd csd;
+    int ret;
+    unsigned long long capacity;
+    struct csd csd;
 
-	ret = mmc_decode_csd(mmc_card, &csd);
-	if (ret) {
-		return -1;
-	}
+    ret = mmc_decode_csd(mmc_card, &csd);
+    if (ret) {
+        return -1;
+    }
 
-	if (csd.structure == 0) {
-		capacity = (csd.c_size + 1) * (1U << (csd.c_size_mult + 2));
-		capacity *= (1U << csd.read_bl_len);
-	} else if (csd.structure == 1) {
-		capacity = (csd.c_size + 1) * 512 * 1024;
-	} else {
-		return -1;
-	}
+    if (csd.structure == 0) {
+        capacity = (csd.c_size + 1) * (1U << (csd.c_size_mult + 2));
+        capacity *= (1U << csd.read_bl_len);
+    } else if (csd.structure == 1) {
+        capacity = (csd.c_size + 1) * 512 * 1024;
+    } else {
+        return -1;
+    }
 
-	return capacity;
+    return capacity;
 }
 
+
+enum sdhc_id
+mmc_default_id(void)
+{
+    return sdhc_plat_default_id();
+}

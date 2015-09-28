@@ -11,12 +11,32 @@
 #ifndef _SDHC_H_
 #define _SDHC_H_
 
-#include <sdhc/sdhc.h>
 #include "mmc.h"
 
-struct sdhc;
-
 #define swab(x) __be32_to_cpu(x)
+
+struct sdhc {
+    volatile void   *base;
+    int             status;
+    struct mmc_card *card;
+    ps_dma_man_t* dalloc;
+};
+typedef struct sdhc* sdhc_dev_t;
+
+
+
+/* Perform some type checking when getting/setting private data */
+static inline struct sdhc*
+_mmc_get_sdhc(struct mmc_card* mmc){
+    return (struct sdhc*)mmc->priv;
+}
+
+static inline void
+_mmc_set_sdhc(struct mmc_card* mmc, struct sdhc* sdhc){
+    mmc->priv = (void*)sdhc;
+}
+
+
 
 static inline uint32_t
 __be32_to_cpu(uint32_t x){
@@ -31,16 +51,12 @@ __be32_to_cpu(uint32_t x){
 }
 
 
-/* Interface for platform specific code */
-
-/* void sdhc_plat_init(void) */
-sdhc_dev_t sdhc_plat_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops);
-
 int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd);
-void sdhc_plat_reset(struct sdhc *host);
-void sdhc_plat_interrupt(void);
+sdhc_dev_t sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops);
 
-enum sdhc_id plat_sdhc_default_id(void);
+/* Platform specific code */
+enum sdhc_id sdhc_plat_default_id(void);
+int sdhc_plat_init(enum sdhc_id id, ps_io_ops_t* io_ops, sdhc_dev_t sdhc);
 
 
 #endif /* _SDHC_H_ */
