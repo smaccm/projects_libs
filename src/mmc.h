@@ -163,37 +163,32 @@ struct mmc_card {
     uint32_t high_capacity;
     uint32_t status;
     ps_dma_man_t* dalloc;
-    /* Populated by the host controller */
-    int (*host_send_command)(void* host, struct mmc_cmd *cmd, sdhc_cb cb, void* token);
-    int (*host_handle_irq)(void* host, int irq);
-    int (*host_is_voltage_compatible)(void* host, int mv);
-    int (*host_reset)(void* host);
-    void* host;
+    sdio_host_dev_t* sdio;
 };
 
 static inline int
-host_send_command(struct mmc_card* card, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
+host_send_command(struct mmc_card* card, struct mmc_cmd *cmd, sdio_cb cb, void* token)
 {
-    return card->host_send_command(card->host, cmd, cb, token);
+    return sdio_send_command(card->sdio, cmd, cb, token);
 }
 
 static inline int
 host_handle_irq(struct mmc_card* card, int irq)
 {
-    return card->host_handle_irq(card->host, irq);
+    return sdio_handle_irq(card->sdio, irq);
 }
 
 static inline int
 host_is_voltage_compatible(struct mmc_card* card, int mv)
 {
-    return card->host_is_voltage_compatible(card->host, mv);
+    return sdio_is_voltage_compatible(card->sdio, mv);
 }
 
 
 static inline int
 host_reset(struct mmc_card* card)
 {
-    return card->host_reset(card->host);
+    return sdio_reset(card->sdio);
 }
 
 

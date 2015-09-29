@@ -8,17 +8,18 @@
  * @TAG(NICTA_BSD)
  */
 
-#ifndef _PLAT_SDHC_H_
-#define _PLAT_SDHC_H_
+#ifndef _PLAT_SDIO_H_
+#define _PLAT_SDIO_H_
 
-enum sdhc_id {
+enum sdio_id {
+    SDHC0,
     SDHC1,
     SDHC2,
     SDHC3,
     SDHC4,
     NSDHC,
-    SDHC_DEFAULT = SDHC4
+    SDHC_DEFAULT = SDHC2
 };
 
-#endif /* _PLAT_SDHC_H_ */
+#endif /* _PLAT_SDIO_H_ */
 

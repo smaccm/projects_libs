@@ -1,3 +1,4 @@
+
 /*
  * Copyright 2014, NICTA
  *
@@ -11,29 +12,27 @@
 #include "../../sdhc.h"
 #include "../../services.h"
 
-#define SDHC0_PADDR 0x12510000
-#define SDHC1_PADDR 0x12520000
-#define SDHC2_PADDR 0x12530000
-#define SDHC3_PADDR 0x12540000
-#define SDHC4_PADDR 0x12550000
+#define SDHC1_PADDR 0x02190000
+#define SDHC2_PADDR 0x02194000
+#define SDHC3_PADDR 0x02198000
+#define SDHC4_PADDR 0x0219C000
 
-#define SDHC0_SIZE  0x1000
 #define SDHC1_SIZE  0x1000
 #define SDHC2_SIZE  0x1000
 #define SDHC3_SIZE  0x1000
 #define SDHC4_SIZE  0x1000
 
-enum sdhc_id
-sdhc_plat_default_id(void){
+enum sdio_id
+sdio_default_id(void){
     return SDHC_DEFAULT;
 }
 
 int
-sdhc_plat_init(enum sdhc_id id, ps_io_ops_t* io_ops, sdhc_dev_t sdhc)
+sdio_init(enum sdio_id id, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
 {
     void* iobase;
+    int ret;
     switch(id){
-    case SDHC0: iobase = RESOURCE(io_ops, SDHC0); break;
     case SDHC1: iobase = RESOURCE(io_ops, SDHC1); break;
     case SDHC2: iobase = RESOURCE(io_ops, SDHC2); break;
     case SDHC3: iobase = RESOURCE(io_ops, SDHC3); break;
@@ -41,13 +40,16 @@ sdhc_plat_init(enum sdhc_id id, ps_io_ops_t* io_ops, sdhc_dev_t sdhc)
     default:
         return -1;
     }
-
-    sdhc->base = iobase;
-    if(sdhc->base == NULL){
+    if(iobase == NULL){
+        LOG_ERROR("Failed to map device memory for SDHC\n");
         return -1;
-    }else{
-        return 0;
     }
+    ret = sdhc_init(iobase, io_ops, dev);
+    if(ret){
+        LOG_ERROR("Failed to initialise SDHC\n");
+        return -1;
+    }
+    return 0;
 }
 
 

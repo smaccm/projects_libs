@@ -158,6 +158,11 @@
 #define writel(v, a)  (*(volatile uint32_t*)(a) = (v))
 #define readl(a)      (*(volatile uint32_t*)(a))
 
+static inline sdhc_dev_t
+sdio_get_sdhc(sdio_host_dev_t* sdio)
+{
+    return (sdhc_dev_t)sdio->priv;
+}
 
 /** Print uSDHC registers. */
 UNUSED static void
@@ -170,33 +175,25 @@ print_sdhc_regs(struct sdhc *host)
 }
 
 
-/** Return the default SDHC interface ID for the platform
- * @return the device ID of the default SDHC interface for the
- *         running platform.
- */
-enum sdhc_id
-sdhc_default_id(void)
-{
-    return sdhc_plat_default_id();
-}
-
-
 /** Pass control to the devices IRQ handler
  * @param[in] sd_dev  The sdhc interface device that triggered 
  *                    the interrupt event.
  */
 static int
-sdhc_handle_irq(sdhc_dev_t sd_dev, int irq)
+sdhc_handle_irq(sdio_host_dev_t* sdio, int irq)
 {
-    (void)sd_dev;
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
+    (void)host;
+    (void)irq;
     D(DBG_INFO, "SDHC intr fired ...\n");
     return 0;
 }
 
 static int
-sdhc_is_voltage_compatible(sdhc_dev_t host, int mv)
+sdhc_is_voltage_compatible(sdio_host_dev_t* sdio, int mv)
 {
     uint32_t val;
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
     val = readl(host->base + HOST_CTRL_CAP);
     if(mv == 3300 && (val & HOST_CTRL_CAP_VS33)){
         return 1;
@@ -206,9 +203,10 @@ sdhc_is_voltage_compatible(sdhc_dev_t host, int mv)
 }
 
 static int
-sdhc_send_cmd(sdhc_dev_t host, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
+sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* token)
 {
     uint32_t val;
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
 
     writel(0xffffffff, host->base + INT_STATUS);
 
@@ -370,8 +368,9 @@ sdhc_send_cmd(sdhc_dev_t host, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
 
 /** Software Reset */
 static int
-sdhc_reset(struct sdhc *host)
+sdhc_reset(sdio_host_dev_t* sdio)
 {
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
     uint32_t val;
 
     /* Reset the host */
@@ -455,71 +454,26 @@ sdhc_reset(struct sdhc *host)
     return 0;
 }
 
-/********************
- *** MMC adapters ***
- ********************/
-static int
-priv_sdhc_reset(void* sdhc_priv)
-{
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_reset(sdhc);
-}
-
-static int
-priv_sdhc_handle_irq(void* sdhc_priv, int irq)
-{
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_handle_irq(sdhc, irq);
-}
-
-static int
-priv_sdhc_is_voltage_compatible(void* sdhc_priv, int mv)
-{
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_is_voltage_compatible(sdhc, mv);
-}
-
-static int
-priv_sdhc_send_cmd(void* sdhc_priv, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
-{
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_send_cmd(sdhc, cmd, cb, token);
-}
-
-
-/**********************
- *** Initialisation ***
- **********************/
-
-sdhc_dev_t
-sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
+int
+sdhc_init(void* iobase, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
 {
     sdhc_dev_t sdhc;
-    int err;
-    /* Check that a card structure was provided */
-    if (!card) {
-        LOG_ERROR("Invalid MMC card structure!\n");
-        return NULL;
-    }
     /* Allocate memory for SDHC structure */
     sdhc = (sdhc_dev_t)malloc(sizeof(*sdhc));
     if (!sdhc) {
         LOG_ERROR("Not enough memory!\n");
-        return NULL;
-    }
-    /* Call platform initialisation code */
-    err = sdhc_plat_init(id, io_ops, sdhc);
-    if(err){
-        LOG_ERROR("SDHC platform specific initialisation failed\n");
-        return NULL;
+        return -1;
     }
     /* Complete the initialisation of the SDHC structure */
-    card->host_handle_irq = &priv_sdhc_handle_irq;
-    card->host_send_command = &priv_sdhc_send_cmd;
-    card->host_is_voltage_compatible = &priv_sdhc_is_voltage_compatible;
-    card->host_reset = &priv_sdhc_reset;
-    card->host = sdhc;
-    return sdhc;
+    sdhc->base = iobase;
+    sdhc->dalloc = &io_ops->dma_manager;
+    /* Initialise SDIO structure */
+    dev->handle_irq = &sdhc_handle_irq;
+    dev->send_command = &sdhc_send_cmd;
+    dev->is_voltage_compatible = &sdhc_is_voltage_compatible;
+    dev->reset = &sdhc_reset;
+    dev->priv = sdhc;
+    return 0;
 }
 
 

@@ -13,7 +13,7 @@
 
 #include <platsupport/io.h>
 #include <dma/dma.h>
-#include <sdhc/plat/sdhc.h>
+#include <sdhc/sdio.h>
 
 typedef struct mmc_card* mmc_card_t;
 
@@ -21,19 +21,13 @@ typedef struct mmc_card* mmc_card_t;
 typedef void (*mmc_cb)(mmc_card_t* mmc_card, int status, size_t bytes_transfered, void* token);
 
 
-/** Return the default MMC interface ID for the platform
- * @return the device ID of the default SDHC interface for the
- *         running platform.
- */
-enum sdhc_id mmc_default_id(void);
-
 static inline int mmc_block_size(mmc_card_t mmc_card)
 {
     return 512;
 }
 
 /** Initialise an MMC card
- * @param[in]  id            The ID of the interface to
+ * @param[in]  sdio_dev      An sdio device structure to bind the MMC driver to
  *                           probe
  * @param[in]  io_ops        Handle to a structure which provides IO
  *                           and DMA operations.
@@ -42,7 +36,7 @@ static inline int mmc_block_size(mmc_card_t mmc_card)
  *                           associated with the provided id.
  * @return                   0 on success.
  */
-int mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
+int mmc_init(sdio_host_dev_t* sdio, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
 
 /** Read blocks from the MMC
  * @param[in] mmc_card  A handle to an initialised MMC card

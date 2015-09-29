@@ -12,25 +12,14 @@
 #define _SDHC_H_
 
 #include <platsupport/io.h>
+#include <sdhc/sdio.h>
 
 struct sdhc {
     volatile void   *base;
-    int             status;
     ps_dma_man_t* dalloc;
 };
 typedef struct sdhc* sdhc_dev_t;
 
-struct mmc_cmd;
-typedef void (*sdhc_cb)(sdhc_dev_t sdhc, struct mmc_cmd* cmd, void* token);
-
-#include "mmc.h"
-
-/* TODO remove card as an argument */
-sdhc_dev_t sdhc_init(enum sdhc_id id, mmc_card_t, ps_io_ops_t* io_ops);
-
-/* Platform specific code */
-enum sdhc_id sdhc_plat_default_id(void);
-int sdhc_plat_init(enum sdhc_id id, ps_io_ops_t* io_ops, sdhc_dev_t sdhc);
-
+int sdhc_init(void* vbase, ps_io_ops_t* io_ops, sdio_host_dev_t* dev);
 
 #endif /* _SDHC_H_ */

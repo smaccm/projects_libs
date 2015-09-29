@@ -9,7 +9,6 @@
  */
 
 #include "mmc.h"
-#include "sdhc.h"
 #include "services.h"
 #include <string.h>
 #include <assert.h>
@@ -288,9 +287,9 @@ mmc_reset(mmc_card_t card){
 }
 
 int
-mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
+mmc_init(sdio_host_dev_t* sdio, ps_io_ops_t *io_ops, mmc_card_t* mmc_card)
+{
     mmc_card_t mmc;
-    sdhc_dev_t sdhc = NULL;
 
     /* Allocate the mmc card structure */
     mmc = (mmc_card_t)_malloc(sizeof(*mmc));
@@ -299,20 +298,14 @@ mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
         return -1;
     }
     mmc->dalloc = &io_ops->dma_manager;
-
-    /* Need some abstraction here... May not be an sdhc iface */
-    sdhc = sdhc_init(id, mmc, io_ops);
-    assert(sdhc);
-    if(!sdhc){
-        LOG_ERROR("Failed to initialise SDHC device\n");
-        free(mmc);
-        return -1;
-    }
+    mmc->sdio = sdio;
+    /* Reset the host controller */
     if(host_reset(mmc)){
         LOG_ERROR("Failed to reset host controller\n");
         free(mmc);
         return -1;
     }
+    /* Initialise the card */
     if(mmc_reset(mmc)){
         LOG_ERROR("Failed to reset SD/MMC card\n");
         free(mmc);
@@ -439,9 +432,3 @@ mmc_card_capacity(mmc_card_t mmc_card) {
     return capacity;
 }
 
-
-enum sdhc_id
-mmc_default_id(void)
-{
-    return sdhc_plat_default_id();
-}
