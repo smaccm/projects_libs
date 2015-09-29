@@ -135,12 +135,11 @@ mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
     return 0;
 }
 
-unsigned long
+long
 mmc_block_read(mmc_card_t mmc_card, unsigned long start,
-               int nblocks, void* data){
-    /* sdhc has a standard register set so this is a poor level
-     * of abstraction */
-    /* Try write one block */
+               int nblocks, void* data, mmc_cb cb, void* token)
+{
+    struct mmc_cmd cmd;
     struct mmc_data mdata;
     void* buf;
     uintptr_t pbuf = 0;
@@ -156,18 +155,32 @@ mmc_block_read(mmc_card_t mmc_card, unsigned long start,
     mdata.block_size = bs;
     mdata.blocks = nblocks;
     /* Write the block */
-    ret = sdhc_card_block_read(mmc_card, &mdata);
+    cmd.data = &mdata;
+    cmd.index = MMC_READ_SINGLE_BLOCK;
+    if (mmc_card->high_capacity) {
+        cmd.arg = mdata.data_addr;
+    } else {
+        cmd.arg = mdata.data_addr * mdata.block_size;
+    }
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+
+    ret = send_command(mmc_card, &cmd, NULL, NULL);
     /* Copy in the data */
-    memcpy(data, buf, ret);
+    memcpy(data, buf, bytes);
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    return ret;
+    if(ret){
+        return ret;
+    }else{
+        return mdata.block_size * mdata.blocks;
+    }
 }
 
-unsigned long
+
+long
 mmc_block_write(mmc_card_t mmc_card, unsigned long start,
-                int nblocks, const void* data){
-    /* sdhc has a standard register set so this is a poor level
-     * of abstraction */
+                int nblocks, const void* data, mmc_cb cb, void* token)
+{
+    struct mmc_cmd cmd;
     struct mmc_data mdata;
     void* buf;
     uintptr_t pbuf = 0;
@@ -185,9 +198,22 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
     /* Copy in the data */
     memcpy(buf, data, bytes);
     /* Write the block */
-    ret = sdhc_card_block_write(mmc_card, &mdata);
+    cmd.data = &mdata;
+    cmd.index = MMC_WRITE_BLOCK;
+    if (mmc_card->high_capacity) {
+        cmd.arg = mdata.data_addr;
+    } else {
+        cmd.arg = mdata.data_addr * mdata.block_size;
+    }
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    ret = send_command(mmc_card, &cmd, NULL, NULL);
+    /* Free memory */
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    return ret;
+    if(ret){
+        return ret;
+    }else{
+        return mdata.block_size * mdata.blocks;
+    }
 }
 
 unsigned long long

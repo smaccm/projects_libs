@@ -11,9 +11,7 @@
 #ifndef _SDHC_H_
 #define _SDHC_H_
 
-#include "mmc.h"
-
-#define swab(x) __be32_to_cpu(x)
+#include <platsupport/io.h>
 
 struct sdhc {
     volatile void   *base;
@@ -23,35 +21,12 @@ struct sdhc {
 };
 typedef struct sdhc* sdhc_dev_t;
 
+struct mmc_cmd;
+typedef void (*sdhc_cb)(sdhc_dev_t sdhc, struct mmc_cmd* cmd, void* token);
+
+#include "mmc.h"
 
 
-/* Perform some type checking when getting/setting private data */
-static inline struct sdhc*
-_mmc_get_sdhc(struct mmc_card* mmc){
-    return (struct sdhc*)mmc->priv;
-}
-
-static inline void
-_mmc_set_sdhc(struct mmc_card* mmc, struct sdhc* sdhc){
-    mmc->priv = (void*)sdhc;
-}
-
-
-
-static inline uint32_t
-__be32_to_cpu(uint32_t x){
-    int i;
-    uint32_t ret;
-    char* a = (char*)&x;
-    char* b = (char*)&ret;
-    for(i = 0; i < sizeof(x); i++){
-        b[i] = a[sizeof(x) - i - 1];
-    }
-    return ret;
-}
-
-
-int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd);
 sdhc_dev_t sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops);
 
 /* Platform specific code */

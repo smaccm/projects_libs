@@ -17,6 +17,10 @@
 
 typedef struct mmc_card* mmc_card_t;
 
+
+typedef void (*mmc_cb)(mmc_card_t* mmc_card, int status, size_t bytes_transfered, void* token);
+
+
 /** Return the default MMC interface ID for the platform
  * @return the device ID of the default SDHC interface for the
  *         running platform.
@@ -45,28 +49,40 @@ int mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
  * @param[in] start     the starting block number of the operation
  * @param[in] nblocks   The number of blocks to read
  * @param[in] buf       The address of a buffer to read the data into
- * @return              The number of bytes read, 0 on failure.
+ * @param[in] cb        A callback function to call when the transaction completes.
+ *                      If NULL is passed as this argument, the call will be blocking.
+ * @param[in] token     A token to pass, unmodified, to the provided callback function.
+ 
+ * @return              The number of bytes read, negative on failure.
  */
-unsigned long mmc_block_read(mmc_card_t mmc_card,
-                             unsigned long start_block,
-                             int nblocks,
-                             void* data);
+long mmc_block_read(mmc_card_t mmc_card, unsigned long start_block, int nblocks,
+                    void* buf, mmc_cb cb, void* token);
 
 /** Write blocks to the MMC
  * @param[in] mmc_card  A handle to an initialised MMC card
  * @param[in] start     The starting block number of the operation
  * @param[in] nblocks   The number of blocks to write
  * @param[in] buf       The address of a buffer that contains the data to be written
- * @return              The number of bytes read, 0 on failure.
+ * @param[in] cb        A callback function to call when the transaction completes.
+ *                      If NULL is passed as this argument, the call will be blocking.
+ * @param[in] token     A token to pass, unmodified, to the provided callback function.
+ * @return              The number of bytes read, negative on failure.
  */
-unsigned long mmc_block_write(mmc_card_t mmc_card, 
-                             unsigned long start_block,
-                             int nblocks,
-                             const void* data);
+long mmc_block_write(mmc_card_t mmc_card, unsigned long start_block, int nblocks,
+                     const void* buf, mmc_cb cb, void* token);
+
+/**
+ * Passes control to the IRQ handler of the MMC host controller
+ * @param[in] mmc  A handle to an initialised MMC card
+ * @param[in] irq  The IRQ number that was triggered.
+ * @return         0 if an IRQ was handled
+ */
+int mmc_handle_irq(mmc_card_t mmc, int irq);
 
 /** Get card capacity
  * @param[in] mmc_card  A handle to an initialised MMC card
  * @return              Card capacity in bytes
  */
 unsigned long long mmc_card_capacity(mmc_card_t mmc_card);
+
 #endif /* _SDHC_MMC_H_ */

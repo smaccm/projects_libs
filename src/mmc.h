@@ -12,6 +12,7 @@
 #define _MMC_H
 
 #include <sdhc/mmc.h>
+#include "sdhc.h"
 
 /* MMC Standard Command Index,     Response Type */
 #define MMC_GO_IDLE_STATE         0  //NONE
@@ -75,95 +76,111 @@
 
 
 enum mmc_rsp_type {
-	MMC_RSP_TYPE_NONE = 0,
-	MMC_RSP_TYPE_R1,
-	MMC_RSP_TYPE_R1b,
-	MMC_RSP_TYPE_R2,
-	MMC_RSP_TYPE_R3,
-	MMC_RSP_TYPE_R4,
-	MMC_RSP_TYPE_R5,
-	MMC_RSP_TYPE_R5b,
-	MMC_RSP_TYPE_R6,
+    MMC_RSP_TYPE_NONE = 0,
+    MMC_RSP_TYPE_R1,
+    MMC_RSP_TYPE_R1b,
+    MMC_RSP_TYPE_R2,
+    MMC_RSP_TYPE_R3,
+    MMC_RSP_TYPE_R4,
+    MMC_RSP_TYPE_R5,
+    MMC_RSP_TYPE_R5b,
+    MMC_RSP_TYPE_R6,
 };
 
 enum mmc_card_type {
-	CARD_TYPE_UNKNOWN = 0,
-	CARD_TYPE_MMC,
-	CARD_TYPE_SD,
-	CARD_TYPE_SDIO,
+    CARD_TYPE_UNKNOWN = 0,
+    CARD_TYPE_MMC,
+    CARD_TYPE_SD,
+    CARD_TYPE_SDIO,
 };
 
 enum mmc_card_status {
-	CARD_STS_ACTIVE = 0,
-	CARD_STS_INACTIVE,
-	CARD_STS_BUSY,
+    CARD_STS_ACTIVE = 0,
+    CARD_STS_INACTIVE,
+    CARD_STS_BUSY,
 };
 
 struct mmc_data {
-	uintptr_t  pbuf;
-	uint32_t   data_addr;
-	uint32_t   block_size;
-	uint32_t   blocks;
-	uint32_t   error;
+    uintptr_t  pbuf;
+    uint32_t   data_addr;
+    uint32_t   block_size;
+    uint32_t   blocks;
+    uint32_t   error;
 };
 
 struct mmc_cmd {
-	uint32_t        index;
-	int             type;
-	uint32_t        arg;
-	int             rsp_type;
-	uint32_t        response[4];
-	struct mmc_data *data;
+    uint32_t        index;
+    int             type;
+    uint32_t        arg;
+    int             rsp_type;
+    uint32_t        response[4];
+    /* Data payload */
+    struct mmc_data *data;
+    /* For async handling */
+    void*           token;
+    mmc_cb          cb;
 };
 
 struct cid {
-	uint8_t reserved;
-	uint8_t manfid;
-	union {
-		struct {
-			uint8_t  bga;
-			uint8_t  oemid;
-			char     name[6];
-			uint8_t  rev;
-			uint32_t serial;
-			uint8_t  date;
-		} mmc_cid;
-		struct {
-			uint16_t oemid;
-			char     name[5];
-			uint8_t  rev;
-			uint32_t serial;
-			uint16_t date;
-		} sd_cid;
-	};
+    uint8_t reserved;
+    uint8_t manfid;
+    union {
+        struct {
+            uint8_t  bga;
+            uint8_t  oemid;
+            char     name[6];
+            uint8_t  rev;
+            uint32_t serial;
+            uint8_t  date;
+        } mmc_cid;
+        struct {
+            uint16_t oemid;
+            char     name[5];
+            uint8_t  rev;
+            uint32_t serial;
+            uint16_t date;
+        } sd_cid;
+    };
 } __attribute__((packed));
 
 struct csd {
-	uint8_t structure;
-	uint8_t tran_speed;
-	uint8_t read_bl_len;
-	uint32_t c_size;
-	uint8_t  c_size_mult;
+    uint8_t structure;
+    uint8_t tran_speed;
+    uint8_t read_bl_len;
+    uint32_t c_size;
+    uint8_t  c_size_mult;
 };
 
 struct mmc_card {
-	/*struct imx6q_sdhc *host;*/
-	void* priv;
-	uint32_t ocr;
-	uint32_t raw_cid[4];
-	uint32_t raw_csd[4];
-	uint16_t raw_rca;
-	uint32_t raw_scr[2];
-	uint32_t type;
-	uint32_t voltage;
-	uint32_t version;
-	uint32_t high_capacity;
-	uint32_t status;
-	ps_dma_man_t* dalloc;
+    uint32_t ocr;
+    uint32_t raw_cid[4];
+    uint32_t raw_csd[4];
+    uint16_t raw_rca;
+    uint32_t raw_scr[2];
+    uint32_t type;
+    uint32_t voltage;
+    uint32_t version;
+    uint32_t high_capacity;
+    uint32_t status;
+    ps_dma_man_t* dalloc;
+    /* Populated by the host controller */
+    int (*send_command)(void* host, struct mmc_cmd *cmd, sdhc_cb cb, void* token);
+    int (*handle_irq)(void* host, int irq);
+    void* host;
 };
 
-int sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data);
-int sdhc_card_block_write(struct mmc_card *card, struct mmc_data *data);
+static inline int
+send_command(struct mmc_card* card, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
+{
+    return card->send_command(card->host, cmd, cb, token);
+}
+
+static inline int
+handle_irq(struct mmc_card* card, int irq)
+{
+    return card->handle_irq(card->host, irq);
+}
+
 
 
 /* void card_data(...) */

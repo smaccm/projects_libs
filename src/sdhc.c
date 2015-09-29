@@ -174,7 +174,9 @@ print_sdhc_regs(struct sdhc *host)
  * @return the device ID of the default SDHC interface for the
  *         running platform.
  */
-enum sdhc_id sdhc_default_id(void){
+enum sdhc_id
+sdhc_default_id(void)
+{
     return sdhc_plat_default_id();
 }
 
@@ -183,263 +185,23 @@ enum sdhc_id sdhc_default_id(void){
  * @param[in] sd_dev  The sdhc interface device that triggered 
  *                    the interrupt event.
  */
-void sdhc_handle_irq(sdhc_dev_t sd_dev){
+static int
+sdhc_handle_irq(sdhc_dev_t sd_dev, int irq)
+{
     (void)sd_dev;
     D(DBG_INFO, "SDHC intr fired ...\n");
+    return 0;
 }
 
-
-/**
- * Card voltage validation.
- */
-static void sdhc_voltage_validation(struct sdhc *host)
+static int
+priv_sdhc_handle_irq(void* sdhc_priv, int irq)
 {
-    D(DBG_INFO, "\n");
-
-    int ret;
-    int val;
-    int voltage;
-    struct mmc_cmd cmd = {.data = NULL};
-    struct mmc_card *card = host->card;
-
-    /* Send CMD55 to issue an application specific command. */
-    cmd.index = MMC_APP_CMD;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    ret = sdhc_send_cmd(host, &cmd);
-    if (!ret) {
-        /* It is a SD card. */
-        cmd.index = SD_SD_APP_OP_COND;
-        cmd.arg = 0;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        card->type = CARD_TYPE_SD;
-    } else {
-        /* It is a MMC card. */
-        cmd.index = MMC_SEND_OP_COND;
-        cmd.arg = 0;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        card->type = CARD_TYPE_MMC;
-    }
-    ret = sdhc_send_cmd(host, &cmd);
-    if (ret) {
-        card->type = CARD_TYPE_UNKNOWN;
-        /* TODO: Be nicer */
-        assert(0);
-    }
-    card->ocr = cmd.response[0];
-
-    /* TODO: Check uSDHC compatibility */
-    voltage = MMC_VDD_29_30 | MMC_VDD_30_31;
-    val = readl(host->base + HOST_CTRL_CAP);
-    if ((val & HOST_CTRL_CAP_VS33) && (card->ocr & voltage)) {
-        /* Voltage compatible */
-        voltage |= (1 << 30);
-        voltage |= (1 << 25);
-        voltage |= (1 << 24);
-    }
-
-    /* Wait until the voltage level is set. */
-    do {
-        if (card->type == CARD_TYPE_SD) {
-            cmd.index = MMC_APP_CMD;
-            cmd.arg = 0;
-            cmd.rsp_type = MMC_RSP_TYPE_R1;
-            sdhc_send_cmd(host, &cmd);
-        }
-
-        cmd.index = SD_SD_APP_OP_COND;
-        cmd.arg = voltage;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        sdhc_send_cmd(host, &cmd);
-        udelay(100000);
-    } while (!(cmd.response[0] & (1U << 31)));
-    card->ocr = cmd.response[0];
-
-    /* Check CCS bit */
-    if (card->ocr & (1 << 30)) {
-        card->high_capacity = 1;
-    } else {
-        card->high_capacity = 0;
-    }
-
-    D(DBG_INFO, "Voltage set!\n");
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_handle_irq(sdhc, irq);
 }
 
-
-/**
- * MMC/SD/SDIO card registry.
- */
-static void sdhc_card_registry(struct sdhc *host)
-{
-    D(DBG_INFO, "\n");
-
-    int ret;
-    struct mmc_cmd cmd = {.data = NULL};
-    struct mmc_card *card = host->card;
-
-    /* Get card ID */
-    cmd.index = MMC_ALL_SEND_CID;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R2;
-    ret = sdhc_send_cmd(host, &cmd);
-    if (ret) {
-        D(DBG_ERR, "No response!\n");
-        card->status = CARD_STS_INACTIVE;
-        return;
-    } else {
-        card->status = CARD_STS_ACTIVE;
-    }
-
-    /* Left shift the response by 8. Consult SDHC manual. */
-    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
-    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
-    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
-    cmd.response[0] = (cmd.response[0] << 8);
-    memcpy(card->raw_cid, cmd.response, sizeof(card->raw_cid));
-
-
-    /* Retrieve RCA number. */
-    cmd.index = MMC_SEND_RELATIVE_ADDR;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R6;
-    sdhc_send_cmd(host, &cmd);
-    card->raw_rca = (cmd.response[0] >> 16);
-    D(DBG_INFO, "New Card RCA: %x\n", card->raw_rca);
-
-    /* Read CSD, Status */
-    cmd.index = MMC_SEND_CSD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R2;
-    sdhc_send_cmd(host, &cmd);
-
-    /* Left shift the response by 8. Consult SDHC manual. */
-    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
-    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
-    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
-    cmd.response[0] = (cmd.response[0] << 8);
-    memcpy(card->raw_csd, cmd.response, sizeof(card->raw_csd));
-
-    cmd.index = MMC_SEND_STATUS;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd);
-
-    /* Select the card */
-    cmd.index = MMC_SELECT_CARD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R1b;
-    sdhc_send_cmd(host, &cmd);
-
-    /* Set Bus width */
-    cmd.index = MMC_APP_CMD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd);
-    cmd.index = SD_SET_BUS_WIDTH;
-    sdhc_send_cmd(host, &cmd);
-}
-
-
-/** Software Reset */
-static void sdhc_reset(struct sdhc *host)
-{
-    uint32_t val;
-    struct mmc_cmd cmd = {.data = NULL};
-
-    /* Reset the host */
-    val = readl(host->base + SYS_CTRL);
-    val |= SYS_CTRL_RSTA;
-    writel(val, host->base + SYS_CTRL);
-    do {
-        val = readl(host->base + SYS_CTRL);
-    } while (val & SYS_CTRL_RSTA);
-
-    /* Enable IRQs */
-    val = ( INT_STATUS_ADMAE | INT_STATUS_OVRCURE | INT_STATUS_DEBE
-          | INT_STATUS_DCE   | INT_STATUS_DTOE    | INT_STATUS_CRM
-          | INT_STATUS_CINS  | INT_STATUS_BRR     | INT_STATUS_BWR
-          | INT_STATUS_CIE   | INT_STATUS_CEBE    | INT_STATUS_CCE
-          | INT_STATUS_CTOE  | INT_STATUS_TC      | INT_STATUS_CC);
-    writel(val, host->base + INT_STATUS_EN);
-    writel(val, host->base + INT_SIGNAL_EN);
-
-    /* Set clock */
-    val = readl(host->base + SYS_CTRL);
-    val |= SYS_CTRL_CLK_INT_EN;
-    writel(val, host->base + SYS_CTRL);
-    do {
-        val = readl(host->base + SYS_CTRL);
-    } while (!(val & SYS_CTRL_CLK_INT_STABLE));
-    val |= SYS_CTRL_CLK_CARD_EN;
-    writel(val, host->base + SYS_CTRL);
-
-    /* Set Clock
-     * TODO: Hard-coded clock freq based on a *198MHz* default input.
-     */
-    /* make sure the clock state is stable. */
-    if (readl(host->base + PRES_STATE) & PRES_STATE_SDSTB) {
-        val = readl(host->base + SYS_CTRL);
-
-        /* The SDCLK bit varies with Data Rate Mode. */
-        if (readl(host->base + MIX_CTRL) & MIX_CTRL_DDR_EN) {
-            val &= ~(SYS_CTRL_SDCLKS_MASK << SYS_CTRL_SDCLKS_SHF);
-            val |= (0x80 << SYS_CTRL_SDCLKS_SHF);
-            val &= ~(SYS_CTRL_DVS_MASK << SYS_CTRL_DVS_SHF);
-            val |= (0x0 << SYS_CTRL_DVS_SHF);
-        } else {
-            val &= ~(SYS_CTRL_SDCLKS_MASK << SYS_CTRL_SDCLKS_SHF);
-            val |= (0x80 << SYS_CTRL_SDCLKS_SHF);
-            val &= ~(SYS_CTRL_DVS_MASK << SYS_CTRL_DVS_SHF);
-            val |= (0x1 << SYS_CTRL_DVS_SHF);
-        }
-
-        /* Set data timeout value */
-        val |= (0xE << SYS_CTRL_DTOCV_SHF);
-        writel(val, host->base + SYS_CTRL);
-    } else {
-        D(DBG_ERR, "The clock is unstable, unable to change it!\n");
-    }
-
-    /* TODO: Select Voltage Level */
-
-    /* Wait until the Command and Data Lines are ready. */
-    while ((readl(host->base + PRES_STATE) & PRES_STATE_CDIHB) ||
-        (readl(host->base + PRES_STATE) & PRES_STATE_CIHB));
-
-    /* Send 80 clock ticks to card to power up. */
-    val = readl(host->base + SYS_CTRL);
-    val |= SYS_CTRL_INITA;
-    writel(val, host->base + SYS_CTRL);
-    while(readl(host->base + SYS_CTRL) & SYS_CTRL_INITA);
-
-    /* Check if a SD card is inserted. */
-    val = readl(host->base + PRES_STATE);
-    if (val & PRES_STATE_CINST) {
-        printf("Card Inserted");
-        if (!(val & PRES_STATE_WPSPL)) {
-            printf("(Read Only)");
-        }
-        printf("...\n");
-    } else {
-        printf("Card Not Present...\n");
-    }
-
-
-    /* Reset the card with CMD0 */
-    cmd.index = MMC_GO_IDLE_STATE;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_NONE;
-    sdhc_send_cmd(host, &cmd);
-
-
-    /* TODO: review this command. */
-    cmd.index = MMC_SEND_EXT_CSD;
-    cmd.arg = 0x1AA;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd);
-
-}
-
-int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd)
+static int
+sdhc_send_cmd(sdhc_dev_t host, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
 {
     uint32_t val;
 
@@ -600,55 +362,263 @@ int sdhc_send_cmd(struct sdhc *host, struct mmc_cmd *cmd)
     return 0;
 }
 
-int
-sdhc_card_block_write(struct mmc_card *card, struct mmc_data *data)
+static int
+priv_sdhc_send_cmd(void* sdhc_priv, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
+{
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_send_cmd(sdhc, cmd, cb, token);
+}
+
+/**
+ * Card voltage validation.
+ */
+static void sdhc_voltage_validation(struct sdhc *host)
 {
     D(DBG_INFO, "\n");
 
     int ret;
-    struct mmc_cmd cmd;
-    struct sdhc* sdhc = _mmc_get_sdhc(card);
-    cmd.data = data;
-    cmd.index = MMC_WRITE_BLOCK;
-    if (card->high_capacity) {
-        cmd.arg = data->data_addr;
-    } else {
-        cmd.arg = data->data_addr * data->block_size;
-    }
+    int val;
+    int voltage;
+    struct mmc_cmd cmd = {.data = NULL};
+    struct mmc_card *card = host->card;
+
+    /* Send CMD55 to issue an application specific command. */
+    cmd.index = MMC_APP_CMD;
+    cmd.arg = 0;
     cmd.rsp_type = MMC_RSP_TYPE_R1;
-
-    ret = sdhc_send_cmd(sdhc, &cmd);
+    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
+    if (!ret) {
+        /* It is a SD card. */
+        cmd.index = SD_SD_APP_OP_COND;
+        cmd.arg = 0;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        card->type = CARD_TYPE_SD;
+    } else {
+        /* It is a MMC card. */
+        cmd.index = MMC_SEND_OP_COND;
+        cmd.arg = 0;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        card->type = CARD_TYPE_MMC;
+    }
+    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
     if (ret) {
-        D(DBG_INFO, "Write single block error.\n");
+        card->type = CARD_TYPE_UNKNOWN;
+        /* TODO: Be nicer */
+        assert(0);
+    }
+    card->ocr = cmd.response[0];
+
+    /* TODO: Check uSDHC compatibility */
+    voltage = MMC_VDD_29_30 | MMC_VDD_30_31;
+    val = readl(host->base + HOST_CTRL_CAP);
+    if ((val & HOST_CTRL_CAP_VS33) && (card->ocr & voltage)) {
+        /* Voltage compatible */
+        voltage |= (1 << 30);
+        voltage |= (1 << 25);
+        voltage |= (1 << 24);
     }
 
-    return data->block_size * data->blocks;
+    /* Wait until the voltage level is set. */
+    do {
+        if (card->type == CARD_TYPE_SD) {
+            cmd.index = MMC_APP_CMD;
+            cmd.arg = 0;
+            cmd.rsp_type = MMC_RSP_TYPE_R1;
+            sdhc_send_cmd(host, &cmd, NULL, NULL);
+        }
+
+        cmd.index = SD_SD_APP_OP_COND;
+        cmd.arg = voltage;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        sdhc_send_cmd(host, &cmd, NULL, NULL);
+        udelay(100000);
+    } while (!(cmd.response[0] & (1U << 31)));
+    card->ocr = cmd.response[0];
+
+    /* Check CCS bit */
+    if (card->ocr & (1 << 30)) {
+        card->high_capacity = 1;
+    } else {
+        card->high_capacity = 0;
+    }
+
+    D(DBG_INFO, "Voltage set!\n");
 }
 
-int
-sdhc_card_block_read(struct mmc_card *card, struct mmc_data *data)
+
+/**
+ * MMC/SD/SDIO card registry.
+ */
+static void sdhc_card_registry(struct sdhc *host)
 {
+    D(DBG_INFO, "\n");
+
     int ret;
-    struct mmc_cmd cmd;
-    struct sdhc* sdhc = _mmc_get_sdhc(card);
+    struct mmc_cmd cmd = {.data = NULL};
+    struct mmc_card *card = host->card;
 
-    /* Start transfer */
-    cmd.data = data;
-    cmd.index = MMC_READ_SINGLE_BLOCK;
-    if (card->high_capacity) {
-        cmd.arg = data->data_addr;
-    } else {
-        cmd.arg = data->data_addr * data->block_size;
-    }
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-
-    ret = sdhc_send_cmd(sdhc, &cmd);
+    /* Get card ID */
+    cmd.index = MMC_ALL_SEND_CID;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_R2;
+    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
     if (ret) {
-        D(DBG_INFO, "Read single block error.\n");
+        D(DBG_ERR, "No response!\n");
+        card->status = CARD_STS_INACTIVE;
+        return;
+    } else {
+        card->status = CARD_STS_ACTIVE;
     }
 
-    return data->block_size * data->blocks;
+    /* Left shift the response by 8. Consult SDHC manual. */
+    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
+    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
+    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
+    cmd.response[0] = (cmd.response[0] << 8);
+    memcpy(card->raw_cid, cmd.response, sizeof(card->raw_cid));
+
+
+    /* Retrieve RCA number. */
+    cmd.index = MMC_SEND_RELATIVE_ADDR;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_R6;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+    card->raw_rca = (cmd.response[0] >> 16);
+    D(DBG_INFO, "New Card RCA: %x\n", card->raw_rca);
+
+    /* Read CSD, Status */
+    cmd.index = MMC_SEND_CSD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R2;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+
+    /* Left shift the response by 8. Consult SDHC manual. */
+    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
+    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
+    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
+    cmd.response[0] = (cmd.response[0] << 8);
+    memcpy(card->raw_csd, cmd.response, sizeof(card->raw_csd));
+
+    cmd.index = MMC_SEND_STATUS;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+
+    /* Select the card */
+    cmd.index = MMC_SELECT_CARD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R1b;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+
+    /* Set Bus width */
+    cmd.index = MMC_APP_CMD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+    cmd.index = SD_SET_BUS_WIDTH;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
 }
+
+
+/** Software Reset */
+static void sdhc_reset(struct sdhc *host)
+{
+    uint32_t val;
+    struct mmc_cmd cmd = {.data = NULL};
+
+    /* Reset the host */
+    val = readl(host->base + SYS_CTRL);
+    val |= SYS_CTRL_RSTA;
+    writel(val, host->base + SYS_CTRL);
+    do {
+        val = readl(host->base + SYS_CTRL);
+    } while (val & SYS_CTRL_RSTA);
+
+    /* Enable IRQs */
+    val = ( INT_STATUS_ADMAE | INT_STATUS_OVRCURE | INT_STATUS_DEBE
+          | INT_STATUS_DCE   | INT_STATUS_DTOE    | INT_STATUS_CRM
+          | INT_STATUS_CINS  | INT_STATUS_BRR     | INT_STATUS_BWR
+          | INT_STATUS_CIE   | INT_STATUS_CEBE    | INT_STATUS_CCE
+          | INT_STATUS_CTOE  | INT_STATUS_TC      | INT_STATUS_CC);
+    writel(val, host->base + INT_STATUS_EN);
+    writel(val, host->base + INT_SIGNAL_EN);
+
+    /* Set clock */
+    val = readl(host->base + SYS_CTRL);
+    val |= SYS_CTRL_CLK_INT_EN;
+    writel(val, host->base + SYS_CTRL);
+    do {
+        val = readl(host->base + SYS_CTRL);
+    } while (!(val & SYS_CTRL_CLK_INT_STABLE));
+    val |= SYS_CTRL_CLK_CARD_EN;
+    writel(val, host->base + SYS_CTRL);
+
+    /* Set Clock
+     * TODO: Hard-coded clock freq based on a *198MHz* default input.
+     */
+    /* make sure the clock state is stable. */
+    if (readl(host->base + PRES_STATE) & PRES_STATE_SDSTB) {
+        val = readl(host->base + SYS_CTRL);
+
+        /* The SDCLK bit varies with Data Rate Mode. */
+        if (readl(host->base + MIX_CTRL) & MIX_CTRL_DDR_EN) {
+            val &= ~(SYS_CTRL_SDCLKS_MASK << SYS_CTRL_SDCLKS_SHF);
+            val |= (0x80 << SYS_CTRL_SDCLKS_SHF);
+            val &= ~(SYS_CTRL_DVS_MASK << SYS_CTRL_DVS_SHF);
+            val |= (0x0 << SYS_CTRL_DVS_SHF);
+        } else {
+            val &= ~(SYS_CTRL_SDCLKS_MASK << SYS_CTRL_SDCLKS_SHF);
+            val |= (0x80 << SYS_CTRL_SDCLKS_SHF);
+            val &= ~(SYS_CTRL_DVS_MASK << SYS_CTRL_DVS_SHF);
+            val |= (0x1 << SYS_CTRL_DVS_SHF);
+        }
+
+        /* Set data timeout value */
+        val |= (0xE << SYS_CTRL_DTOCV_SHF);
+        writel(val, host->base + SYS_CTRL);
+    } else {
+        D(DBG_ERR, "The clock is unstable, unable to change it!\n");
+    }
+
+    /* TODO: Select Voltage Level */
+
+    /* Wait until the Command and Data Lines are ready. */
+    while ((readl(host->base + PRES_STATE) & PRES_STATE_CDIHB) ||
+        (readl(host->base + PRES_STATE) & PRES_STATE_CIHB));
+
+    /* Send 80 clock ticks to card to power up. */
+    val = readl(host->base + SYS_CTRL);
+    val |= SYS_CTRL_INITA;
+    writel(val, host->base + SYS_CTRL);
+    while(readl(host->base + SYS_CTRL) & SYS_CTRL_INITA);
+
+    /* Check if a SD card is inserted. */
+    val = readl(host->base + PRES_STATE);
+    if (val & PRES_STATE_CINST) {
+        printf("Card Inserted");
+        if (!(val & PRES_STATE_WPSPL)) {
+            printf("(Read Only)");
+        }
+        printf("...\n");
+    } else {
+        printf("Card Not Present...\n");
+    }
+
+
+    /* Reset the card with CMD0 */
+    cmd.index = MMC_GO_IDLE_STATE;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_NONE;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+
+
+    /* TODO: review this command. */
+    cmd.index = MMC_SEND_EXT_CSD;
+    cmd.arg = 0x1AA;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    sdhc_send_cmd(host, &cmd, NULL, NULL);
+
+}
+
 
 
 sdhc_dev_t
@@ -676,7 +646,9 @@ sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
     /* Complete the initialisation of the SDHC structure */
     sdhc->card = card;
     sdhc->dalloc = &io_ops->dma_manager;
-    _mmc_set_sdhc(sdhc->card, sdhc);
+    card->handle_irq = &priv_sdhc_handle_irq;
+    card->send_command = &priv_sdhc_send_cmd;
+    card->host = sdhc;
     /* Initialise the card */
     sdhc_reset(sdhc);
     sdhc_voltage_validation(sdhc);
