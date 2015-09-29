@@ -176,7 +176,7 @@ print_sdhc_regs(struct sdhc *host)
 
 
 /** Pass control to the devices IRQ handler
- * @param[in] sd_dev  The sdhc interface device that triggered 
+ * @param[in] sd_dev  The sdhc interface device that triggered
  *                    the interrupt event.
  */
 static int
@@ -195,9 +195,9 @@ sdhc_is_voltage_compatible(sdio_host_dev_t* sdio, int mv)
     uint32_t val;
     sdhc_dev_t host = sdio_get_sdhc(sdio);
     val = readl(host->base + HOST_CTRL_CAP);
-    if(mv == 3300 && (val & HOST_CTRL_CAP_VS33)){
+    if (mv == 3300 && (val & HOST_CTRL_CAP_VS33)) {
         return 1;
-    }else{
+    } else {
         return 0;
     }
 }
@@ -212,7 +212,7 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
 
     /* Check if the Host is ready for transit. */
     while ((readl(host->base + PRES_STATE) & PRES_STATE_CIHB) ||
-        (readl(host->base + PRES_STATE) & PRES_STATE_CDIHB));
+            (readl(host->base + PRES_STATE) & PRES_STATE_CDIHB));
     while (readl(host->base + PRES_STATE) & PRES_STATE_DLA);
 
     /* Two commands need to have at least 8 clock cycles in between. */
@@ -222,11 +222,11 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
     D(DBG_INFO, "CMD: %d with arg %x ", cmd->index, cmd->arg);
     writel(cmd->arg, host->base + CMD_ARG);
 
-    if(cmd->data){
+    if (cmd->data) {
         /* Use the default timeout. */
         val = readl(host->base + SYS_CTRL);
         val &= ~(0xffUL << 16);
-        val |= 0xE << 16; 
+        val |= 0xE << 16;
         writel(val, host->base + SYS_CTRL);
 
         /* Set the DMA boundary. */
@@ -241,7 +241,7 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
         }
         if (cmd->index == MMC_READ_SINGLE_BLOCK) {
             val = (val << WTMK_LVL_RD_WML_SHF);
-        }else{
+        } else {
             val = (val << WTMK_LVL_WR_WML_SHF);
         }
         writel(val, host->base + WTMK_LVL);
@@ -279,29 +279,29 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
     val &= ~CMD_XFR_TYP_CCCEN;
     val &= ~(CMD_XFR_TYP_RSPTYP_MASK << CMD_XFR_TYP_RSPTYP_SHF);
     switch (cmd->rsp_type) {
-        case MMC_RSP_TYPE_R2:
-            val |= (0x1 << CMD_XFR_TYP_RSPTYP_SHF);
-            val |= CMD_XFR_TYP_CCCEN;
-            break;
-        case MMC_RSP_TYPE_R3:
-        case MMC_RSP_TYPE_R4:
-            val |= (0x2 << CMD_XFR_TYP_RSPTYP_SHF);
-            break;
-        case MMC_RSP_TYPE_R1:
-        case MMC_RSP_TYPE_R5:
-        case MMC_RSP_TYPE_R6:
-            val |= (0x2 << CMD_XFR_TYP_RSPTYP_SHF);
-            val |= CMD_XFR_TYP_CICEN;
-            val |= CMD_XFR_TYP_CCCEN;
-            break;
-        case MMC_RSP_TYPE_R1b:
-        case MMC_RSP_TYPE_R5b:
-            val |= (0x3 << CMD_XFR_TYP_RSPTYP_SHF);
-            val |= CMD_XFR_TYP_CICEN;
-            val |= CMD_XFR_TYP_CCCEN;
-            break;
-        default:
-            break;
+    case MMC_RSP_TYPE_R2:
+        val |= (0x1 << CMD_XFR_TYP_RSPTYP_SHF);
+        val |= CMD_XFR_TYP_CCCEN;
+        break;
+    case MMC_RSP_TYPE_R3:
+    case MMC_RSP_TYPE_R4:
+        val |= (0x2 << CMD_XFR_TYP_RSPTYP_SHF);
+        break;
+    case MMC_RSP_TYPE_R1:
+    case MMC_RSP_TYPE_R5:
+    case MMC_RSP_TYPE_R6:
+        val |= (0x2 << CMD_XFR_TYP_RSPTYP_SHF);
+        val |= CMD_XFR_TYP_CICEN;
+        val |= CMD_XFR_TYP_CCCEN;
+        break;
+    case MMC_RSP_TYPE_R1b:
+    case MMC_RSP_TYPE_R5b:
+        val |= (0x3 << CMD_XFR_TYP_RSPTYP_SHF);
+        val |= CMD_XFR_TYP_CICEN;
+        val |= CMD_XFR_TYP_CCCEN;
+        break;
+    default:
+        break;
     }
 
     if (cmd->data) {
@@ -332,7 +332,7 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
         cmd->response[2] = readl(host->base + CMD_RSP2);
         cmd->response[3] = readl(host->base + CMD_RSP3);
     } else if (cmd->rsp_type == MMC_RSP_TYPE_R1b &&
-           cmd->index == MMC_STOP_TRANSMISSION) {
+               cmd->index == MMC_STOP_TRANSMISSION) {
         cmd->response[3] = readl(host->base + CMD_RSP3);
     } else if (cmd->rsp_type == MMC_RSP_TYPE_NONE) {
     } else {
@@ -340,7 +340,7 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
     }
 
     D(DBG_INFO, "CMD_RSP %u: %x %x %x %x\n", cmd->index,
-        cmd->response[0], cmd->response[1], cmd->response[2], cmd->response[3]);
+      cmd->response[0], cmd->response[1], cmd->response[2], cmd->response[3]);
 
     /* Wait for the data transmission to complete. */
     if (cmd->data) {
@@ -383,10 +383,10 @@ sdhc_reset(sdio_host_dev_t* sdio)
 
     /* Enable IRQs */
     val = ( INT_STATUS_ADMAE | INT_STATUS_OVRCURE | INT_STATUS_DEBE
-          | INT_STATUS_DCE   | INT_STATUS_DTOE    | INT_STATUS_CRM
-          | INT_STATUS_CINS  | INT_STATUS_BRR     | INT_STATUS_BWR
-          | INT_STATUS_CIE   | INT_STATUS_CEBE    | INT_STATUS_CCE
-          | INT_STATUS_CTOE  | INT_STATUS_TC      | INT_STATUS_CC);
+            | INT_STATUS_DCE   | INT_STATUS_DTOE    | INT_STATUS_CRM
+            | INT_STATUS_CINS  | INT_STATUS_BRR     | INT_STATUS_BWR
+            | INT_STATUS_CIE   | INT_STATUS_CEBE    | INT_STATUS_CCE
+            | INT_STATUS_CTOE  | INT_STATUS_TC      | INT_STATUS_CC);
     writel(val, host->base + INT_STATUS_EN);
     writel(val, host->base + INT_SIGNAL_EN);
 
@@ -431,13 +431,13 @@ sdhc_reset(sdio_host_dev_t* sdio)
 
     /* Wait until the Command and Data Lines are ready. */
     while ((readl(host->base + PRES_STATE) & PRES_STATE_CDIHB) ||
-        (readl(host->base + PRES_STATE) & PRES_STATE_CIHB));
+            (readl(host->base + PRES_STATE) & PRES_STATE_CIHB));
 
     /* Send 80 clock ticks to card to power up. */
     val = readl(host->base + SYS_CTRL);
     val |= SYS_CTRL_INITA;
     writel(val, host->base + SYS_CTRL);
-    while(readl(host->base + SYS_CTRL) & SYS_CTRL_INITA);
+    while (readl(host->base + SYS_CTRL) & SYS_CTRL_INITA);
 
     /* Check if a SD card is inserted. */
     val = readl(host->base + PRES_STATE);

@@ -22,7 +22,8 @@
 #endif
 
 static inline void
-udelay(long us){
+udelay(long us)
+{
     ps_udelay(us);
 }
 
@@ -34,8 +35,9 @@ udelay(long us){
  * @return          the virtual address of the mapping.
  *                  NULL on failure.
  */
-static inline void* 
-sdhc_map_device(struct ps_io_mapper* o, uintptr_t paddr, int size){
+static inline void*
+sdhc_map_device(struct ps_io_mapper* o, uintptr_t paddr, int size)
+{
     return ps_io_map(o, paddr, size, 0, PS_MEM_NORMAL);
 }
 

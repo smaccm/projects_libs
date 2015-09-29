@@ -76,10 +76,10 @@ static int mmc_decode_cid(mmc_card_t mmc_card, struct cid *cid)
         cid->sd_cid.date    = slice_bits(mmc_card->raw_cid,   8, 12);
 
         printf("manfid(%x), oemid(%x), name(%c%c%c%c%c), rev(%x), serial(%x), date(%x)\n",
-            cid->manfid, cid->sd_cid.oemid,
-            cid->sd_cid.name[0], cid->sd_cid.name[1], cid->sd_cid.name[2],
-            cid->sd_cid.name[3], cid->sd_cid.name[4],
-            cid->sd_cid.rev, cid->sd_cid.serial, cid->sd_cid.date);
+               cid->manfid, cid->sd_cid.oemid,
+               cid->sd_cid.name[0], cid->sd_cid.name[1], cid->sd_cid.name[2],
+               cid->sd_cid.name[3], cid->sd_cid.name[4],
+               cid->sd_cid.rev, cid->sd_cid.serial, cid->sd_cid.date);
     } else {
         printf("Not Implemented!\n");
         return -1;
@@ -270,7 +270,8 @@ mmc_voltage_validation(mmc_card_t card)
 
 
 static int
-mmc_reset(mmc_card_t card){
+mmc_reset(mmc_card_t card)
+{
     /* Reset the card with CMD0 */
     struct mmc_cmd cmd = {.data = NULL};
     cmd.index = MMC_GO_IDLE_STATE;
@@ -294,30 +295,30 @@ mmc_init(sdio_host_dev_t* sdio, ps_io_ops_t *io_ops, mmc_card_t* mmc_card)
     /* Allocate the mmc card structure */
     mmc = (mmc_card_t)_malloc(sizeof(*mmc));
     assert(mmc);
-    if(!mmc){
+    if (!mmc) {
         return -1;
     }
     mmc->dalloc = &io_ops->dma_manager;
     mmc->sdio = sdio;
     /* Reset the host controller */
-    if(host_reset(mmc)){
+    if (host_reset(mmc)) {
         LOG_ERROR("Failed to reset host controller\n");
         free(mmc);
         return -1;
     }
     /* Initialise the card */
-    if(mmc_reset(mmc)){
+    if (mmc_reset(mmc)) {
         LOG_ERROR("Failed to reset SD/MMC card\n");
         free(mmc);
         return -1;
     }
-    if(mmc_voltage_validation(mmc)){
+    if (mmc_voltage_validation(mmc)) {
         LOG_ERROR("Failed to perform voltage validation\n");
         free(mmc);
         return -1;
     }
     /* Register the card */
-    if(mmc_card_registry(mmc)){
+    if (mmc_card_registry(mmc)) {
         LOG_ERROR("Failed to register card\n");
         free(mmc);
         return -1;
@@ -361,9 +362,9 @@ mmc_block_read(mmc_card_t mmc_card, unsigned long start,
     /* Copy in the data */
     memcpy(data, buf, bytes);
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    if(ret){
+    if (ret) {
         return ret;
-    }else{
+    } else {
         return mdata.block_size * mdata.blocks;
     }
 }
@@ -402,15 +403,16 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
     ret = host_send_command(mmc_card, &cmd, NULL, NULL);
     /* Free memory */
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    if(ret){
+    if (ret) {
         return ret;
-    }else{
+    } else {
         return mdata.block_size * mdata.blocks;
     }
 }
 
 unsigned long long
-mmc_card_capacity(mmc_card_t mmc_card) {
+mmc_card_capacity(mmc_card_t mmc_card)
+{
     int ret;
     unsigned long long capacity;
     struct csd csd;

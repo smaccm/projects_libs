@@ -23,7 +23,8 @@
 #define SDHC4_SIZE  0x1000
 
 enum sdio_id
-sdio_default_id(void){
+sdio_default_id(void)
+{
     return SDHC_DEFAULT;
 }
 
@@ -32,20 +33,28 @@ sdio_init(enum sdio_id id, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
 {
     void* iobase;
     int ret;
-    switch(id){
-    case SDHC1: iobase = RESOURCE(io_ops, SDHC1); break;
-    case SDHC2: iobase = RESOURCE(io_ops, SDHC2); break;
-    case SDHC3: iobase = RESOURCE(io_ops, SDHC3); break;
-    case SDHC4: iobase = RESOURCE(io_ops, SDHC4); break;
+    switch (id) {
+    case SDHC1:
+        iobase = RESOURCE(io_ops, SDHC1);
+        break;
+    case SDHC2:
+        iobase = RESOURCE(io_ops, SDHC2);
+        break;
+    case SDHC3:
+        iobase = RESOURCE(io_ops, SDHC3);
+        break;
+    case SDHC4:
+        iobase = RESOURCE(io_ops, SDHC4);
+        break;
     default:
         return -1;
     }
-    if(iobase == NULL){
+    if (iobase == NULL) {
         LOG_ERROR("Failed to map device memory for SDHC\n");
         return -1;
     }
     ret = sdhc_init(iobase, io_ops, dev);
-    if(ret){
+    if (ret) {
         LOG_ERROR("Failed to initialise SDHC\n");
         return -1;
     }

@@ -32,7 +32,7 @@ static inline int mmc_block_size(mmc_card_t mmc_card)
  * @param[in]  io_ops        Handle to a structure which provides IO
  *                           and DMA operations.
  * @param[out] mmc_card      On success, this will be filled with
- *                           a handle to the MMC card 
+ *                           a handle to the MMC card
  *                           associated with the provided id.
  * @return                   0 on success.
  */
@@ -46,7 +46,7 @@ int mmc_init(sdio_host_dev_t* sdio, ps_io_ops_t *io_ops, mmc_card_t* mmc_card);
  * @param[in] cb        A callback function to call when the transaction completes.
  *                      If NULL is passed as this argument, the call will be blocking.
  * @param[in] token     A token to pass, unmodified, to the provided callback function.
- 
+
  * @return              The number of bytes read, negative on failure.
  */
 long mmc_block_read(mmc_card_t mmc_card, unsigned long start_block, int nblocks,
