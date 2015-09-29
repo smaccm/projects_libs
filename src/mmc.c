@@ -15,6 +15,17 @@
 #include <assert.h>
 #include <stdio.h>
 
+#define DBG_INFO "info:"
+
+//#define DEBUG
+#undef DEBUG
+#ifdef DEBUG
+#define D(x, ...) printf(__VA_ARGS__)
+#else
+#define D(...) do{}while(0)
+#endif
+
+
 static uint32_t slice_bits(uint32_t *val, int start, int size)
 {
     int idx;
@@ -110,6 +121,172 @@ static int mmc_decode_csd(mmc_card_t mmc_card, struct csd *csd)
     return 0;
 }
 
+
+/**
+ * MMC/SD/SDIO card registry.
+ */
+static int
+mmc_card_registry(mmc_card_t card)
+{
+    struct mmc_cmd cmd = {.data = NULL};
+    int ret;
+
+    D(DBG_INFO, "\n");
+
+    /* Get card ID */
+    cmd.index = MMC_ALL_SEND_CID;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_R2;
+    ret = host_send_command(card, &cmd, NULL, NULL);
+    if (ret) {
+        D(DBG_ERR, "No response!\n");
+        card->status = CARD_STS_INACTIVE;
+        return -1;
+    } else {
+        card->status = CARD_STS_ACTIVE;
+    }
+
+    /* Left shift the response by 8. Consult SDHC manual. */
+    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
+    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
+    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
+    cmd.response[0] = (cmd.response[0] << 8);
+    memcpy(card->raw_cid, cmd.response, sizeof(card->raw_cid));
+
+
+    /* Retrieve RCA number. */
+    cmd.index = MMC_SEND_RELATIVE_ADDR;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_R6;
+    host_send_command(card, &cmd, NULL, NULL);
+    card->raw_rca = (cmd.response[0] >> 16);
+    D(DBG_INFO, "New Card RCA: %x\n", card->raw_rca);
+
+    /* Read CSD, Status */
+    cmd.index = MMC_SEND_CSD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R2;
+    host_send_command(card, &cmd, NULL, NULL);
+
+    /* Left shift the response by 8. Consult SDHC manual. */
+    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
+    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
+    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
+    cmd.response[0] = (cmd.response[0] << 8);
+    memcpy(card->raw_csd, cmd.response, sizeof(card->raw_csd));
+
+    cmd.index = MMC_SEND_STATUS;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    host_send_command(card, &cmd, NULL, NULL);
+
+    /* Select the card */
+    cmd.index = MMC_SELECT_CARD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R1b;
+    host_send_command(card, &cmd, NULL, NULL);
+
+    /* Set Bus width */
+    cmd.index = MMC_APP_CMD;
+    cmd.arg = card->raw_rca << 16;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    host_send_command(card, &cmd, NULL, NULL);
+    cmd.index = SD_SET_BUS_WIDTH;
+    host_send_command(card, &cmd, NULL, NULL);
+    return 0;
+}
+
+
+/**
+ * Card voltage validation.
+ */
+static int
+mmc_voltage_validation(mmc_card_t card)
+{
+    struct mmc_cmd cmd = {.data = NULL};
+    int voltage;
+    int ret;
+
+    /* Send CMD55 to issue an application specific command. */
+    cmd.index = MMC_APP_CMD;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    ret = host_send_command(card, &cmd, NULL, NULL);
+    if (!ret) {
+        /* It is a SD card. */
+        cmd.index = SD_SD_APP_OP_COND;
+        cmd.arg = 0;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        card->type = CARD_TYPE_SD;
+    } else {
+        /* It is a MMC card. */
+        cmd.index = MMC_SEND_OP_COND;
+        cmd.arg = 0;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        card->type = CARD_TYPE_MMC;
+    }
+    ret = host_send_command(card, &cmd, NULL, NULL);
+    if (ret) {
+        card->type = CARD_TYPE_UNKNOWN;
+        /* TODO: Be nicer */
+        assert(0);
+    }
+    card->ocr = cmd.response[0];
+
+    /* TODO: Check uSDHC compatibility */
+    voltage = MMC_VDD_29_30 | MMC_VDD_30_31;
+    if (host_is_voltage_compatible(card, 3300) && (card->ocr & voltage)) {
+        /* Voltage compatible */
+        voltage |= (1 << 30);
+        voltage |= (1 << 25);
+        voltage |= (1 << 24);
+    }
+
+    /* Wait until the voltage level is set. */
+    do {
+        if (card->type == CARD_TYPE_SD) {
+            cmd.index = MMC_APP_CMD;
+            cmd.arg = 0;
+            cmd.rsp_type = MMC_RSP_TYPE_R1;
+            host_send_command(card, &cmd, NULL, NULL);
+        }
+
+        cmd.index = SD_SD_APP_OP_COND;
+        cmd.arg = voltage;
+        cmd.rsp_type = MMC_RSP_TYPE_R3;
+        host_send_command(card, &cmd, NULL, NULL);
+        udelay(100000);
+    } while (!(cmd.response[0] & (1U << 31)));
+    card->ocr = cmd.response[0];
+
+    /* Check CCS bit */
+    if (card->ocr & (1 << 30)) {
+        card->high_capacity = 1;
+    } else {
+        card->high_capacity = 0;
+    }
+
+    D(DBG_INFO, "Voltage set!\n");
+    return 0;
+}
+
+
+static int
+mmc_reset(mmc_card_t card){
+    /* Reset the card with CMD0 */
+    struct mmc_cmd cmd = {.data = NULL};
+    cmd.index = MMC_GO_IDLE_STATE;
+    cmd.arg = 0;
+    cmd.rsp_type = MMC_RSP_TYPE_NONE;
+    host_send_command(card, &cmd, NULL, NULL);
+
+    /* TODO: review this command. */
+    cmd.index = MMC_SEND_EXT_CSD;
+    cmd.arg = 0x1AA;
+    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    host_send_command(card, &cmd, NULL, NULL);
+    return 0;
+}
+
 int
 mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
     mmc_card_t mmc;
@@ -121,15 +298,38 @@ mmc_init(enum sdhc_id id, ps_io_ops_t *io_ops, mmc_card_t* mmc_card){
     if(!mmc){
         return -1;
     }
+    mmc->dalloc = &io_ops->dma_manager;
 
     /* Need some abstraction here... May not be an sdhc iface */
     sdhc = sdhc_init(id, mmc, io_ops);
     assert(sdhc);
     if(!sdhc){
+        LOG_ERROR("Failed to initialise SDHC device\n");
         free(mmc);
         return -1;
     }
-    mmc->dalloc = &io_ops->dma_manager;
+    if(host_reset(mmc)){
+        LOG_ERROR("Failed to reset host controller\n");
+        free(mmc);
+        return -1;
+    }
+    if(mmc_reset(mmc)){
+        LOG_ERROR("Failed to reset SD/MMC card\n");
+        free(mmc);
+        return -1;
+    }
+    if(mmc_voltage_validation(mmc)){
+        LOG_ERROR("Failed to perform voltage validation\n");
+        free(mmc);
+        return -1;
+    }
+    /* Register the card */
+    if(mmc_card_registry(mmc)){
+        LOG_ERROR("Failed to register card\n");
+        free(mmc);
+        return -1;
+    }
+
     *mmc_card = mmc;
     assert(mmc);
     return 0;
@@ -164,7 +364,7 @@ mmc_block_read(mmc_card_t mmc_card, unsigned long start,
     }
     cmd.rsp_type = MMC_RSP_TYPE_R1;
 
-    ret = send_command(mmc_card, &cmd, NULL, NULL);
+    ret = host_send_command(mmc_card, &cmd, NULL, NULL);
     /* Copy in the data */
     memcpy(data, buf, bytes);
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
@@ -206,7 +406,7 @@ mmc_block_write(mmc_card_t mmc_card, unsigned long start,
         cmd.arg = mdata.data_addr * mdata.block_size;
     }
     cmd.rsp_type = MMC_RSP_TYPE_R1;
-    ret = send_command(mmc_card, &cmd, NULL, NULL);
+    ret = host_send_command(mmc_card, &cmd, NULL, NULL);
     /* Free memory */
     ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
     if(ret){

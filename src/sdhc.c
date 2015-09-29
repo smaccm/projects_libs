@@ -194,10 +194,15 @@ sdhc_handle_irq(sdhc_dev_t sd_dev, int irq)
 }
 
 static int
-priv_sdhc_handle_irq(void* sdhc_priv, int irq)
+sdhc_is_voltage_compatible(sdhc_dev_t host, int mv)
 {
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_handle_irq(sdhc, irq);
+    uint32_t val;
+    val = readl(host->base + HOST_CTRL_CAP);
+    if(mv == 3300 && (val & HOST_CTRL_CAP_VS33)){
+        return 1;
+    }else{
+        return 0;
+    }
 }
 
 static int
@@ -362,168 +367,12 @@ sdhc_send_cmd(sdhc_dev_t host, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
     return 0;
 }
 
-static int
-priv_sdhc_send_cmd(void* sdhc_priv, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
-{
-    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
-    return sdhc_send_cmd(sdhc, cmd, cb, token);
-}
-
-/**
- * Card voltage validation.
- */
-static void sdhc_voltage_validation(struct sdhc *host)
-{
-    D(DBG_INFO, "\n");
-
-    int ret;
-    int val;
-    int voltage;
-    struct mmc_cmd cmd = {.data = NULL};
-    struct mmc_card *card = host->card;
-
-    /* Send CMD55 to issue an application specific command. */
-    cmd.index = MMC_APP_CMD;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
-    if (!ret) {
-        /* It is a SD card. */
-        cmd.index = SD_SD_APP_OP_COND;
-        cmd.arg = 0;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        card->type = CARD_TYPE_SD;
-    } else {
-        /* It is a MMC card. */
-        cmd.index = MMC_SEND_OP_COND;
-        cmd.arg = 0;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        card->type = CARD_TYPE_MMC;
-    }
-    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
-    if (ret) {
-        card->type = CARD_TYPE_UNKNOWN;
-        /* TODO: Be nicer */
-        assert(0);
-    }
-    card->ocr = cmd.response[0];
-
-    /* TODO: Check uSDHC compatibility */
-    voltage = MMC_VDD_29_30 | MMC_VDD_30_31;
-    val = readl(host->base + HOST_CTRL_CAP);
-    if ((val & HOST_CTRL_CAP_VS33) && (card->ocr & voltage)) {
-        /* Voltage compatible */
-        voltage |= (1 << 30);
-        voltage |= (1 << 25);
-        voltage |= (1 << 24);
-    }
-
-    /* Wait until the voltage level is set. */
-    do {
-        if (card->type == CARD_TYPE_SD) {
-            cmd.index = MMC_APP_CMD;
-            cmd.arg = 0;
-            cmd.rsp_type = MMC_RSP_TYPE_R1;
-            sdhc_send_cmd(host, &cmd, NULL, NULL);
-        }
-
-        cmd.index = SD_SD_APP_OP_COND;
-        cmd.arg = voltage;
-        cmd.rsp_type = MMC_RSP_TYPE_R3;
-        sdhc_send_cmd(host, &cmd, NULL, NULL);
-        udelay(100000);
-    } while (!(cmd.response[0] & (1U << 31)));
-    card->ocr = cmd.response[0];
-
-    /* Check CCS bit */
-    if (card->ocr & (1 << 30)) {
-        card->high_capacity = 1;
-    } else {
-        card->high_capacity = 0;
-    }
-
-    D(DBG_INFO, "Voltage set!\n");
-}
-
-
-/**
- * MMC/SD/SDIO card registry.
- */
-static void sdhc_card_registry(struct sdhc *host)
-{
-    D(DBG_INFO, "\n");
-
-    int ret;
-    struct mmc_cmd cmd = {.data = NULL};
-    struct mmc_card *card = host->card;
-
-    /* Get card ID */
-    cmd.index = MMC_ALL_SEND_CID;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R2;
-    ret = sdhc_send_cmd(host, &cmd, NULL, NULL);
-    if (ret) {
-        D(DBG_ERR, "No response!\n");
-        card->status = CARD_STS_INACTIVE;
-        return;
-    } else {
-        card->status = CARD_STS_ACTIVE;
-    }
-
-    /* Left shift the response by 8. Consult SDHC manual. */
-    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
-    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
-    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
-    cmd.response[0] = (cmd.response[0] << 8);
-    memcpy(card->raw_cid, cmd.response, sizeof(card->raw_cid));
-
-
-    /* Retrieve RCA number. */
-    cmd.index = MMC_SEND_RELATIVE_ADDR;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_R6;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-    card->raw_rca = (cmd.response[0] >> 16);
-    D(DBG_INFO, "New Card RCA: %x\n", card->raw_rca);
-
-    /* Read CSD, Status */
-    cmd.index = MMC_SEND_CSD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R2;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-
-    /* Left shift the response by 8. Consult SDHC manual. */
-    cmd.response[3] = ((cmd.response[3] << 8) | (cmd.response[2] >> 24));
-    cmd.response[2] = ((cmd.response[2] << 8) | (cmd.response[1] >> 24));
-    cmd.response[1] = ((cmd.response[1] << 8) | (cmd.response[0] >> 24));
-    cmd.response[0] = (cmd.response[0] << 8);
-    memcpy(card->raw_csd, cmd.response, sizeof(card->raw_csd));
-
-    cmd.index = MMC_SEND_STATUS;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-
-    /* Select the card */
-    cmd.index = MMC_SELECT_CARD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R1b;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-
-    /* Set Bus width */
-    cmd.index = MMC_APP_CMD;
-    cmd.arg = card->raw_rca << 16;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-    cmd.index = SD_SET_BUS_WIDTH;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
-}
-
 
 /** Software Reset */
-static void sdhc_reset(struct sdhc *host)
+static int
+sdhc_reset(struct sdhc *host)
 {
     uint32_t val;
-    struct mmc_cmd cmd = {.data = NULL};
 
     /* Reset the host */
     val = readl(host->base + SYS_CTRL);
@@ -603,23 +452,44 @@ static void sdhc_reset(struct sdhc *host)
         printf("Card Not Present...\n");
     }
 
+    return 0;
+}
 
-    /* Reset the card with CMD0 */
-    cmd.index = MMC_GO_IDLE_STATE;
-    cmd.arg = 0;
-    cmd.rsp_type = MMC_RSP_TYPE_NONE;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
+/********************
+ *** MMC adapters ***
+ ********************/
+static int
+priv_sdhc_reset(void* sdhc_priv)
+{
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_reset(sdhc);
+}
 
+static int
+priv_sdhc_handle_irq(void* sdhc_priv, int irq)
+{
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_handle_irq(sdhc, irq);
+}
 
-    /* TODO: review this command. */
-    cmd.index = MMC_SEND_EXT_CSD;
-    cmd.arg = 0x1AA;
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    sdhc_send_cmd(host, &cmd, NULL, NULL);
+static int
+priv_sdhc_is_voltage_compatible(void* sdhc_priv, int mv)
+{
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_is_voltage_compatible(sdhc, mv);
+}
 
+static int
+priv_sdhc_send_cmd(void* sdhc_priv, struct mmc_cmd *cmd, sdhc_cb cb, void* token)
+{
+    sdhc_dev_t sdhc = (sdhc_dev_t)sdhc_priv;
+    return sdhc_send_cmd(sdhc, cmd, cb, token);
 }
 
 
+/**********************
+ *** Initialisation ***
+ **********************/
 
 sdhc_dev_t
 sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
@@ -644,15 +514,11 @@ sdhc_init(enum sdhc_id id, mmc_card_t card, ps_io_ops_t* io_ops)
         return NULL;
     }
     /* Complete the initialisation of the SDHC structure */
-    sdhc->card = card;
-    sdhc->dalloc = &io_ops->dma_manager;
-    card->handle_irq = &priv_sdhc_handle_irq;
-    card->send_command = &priv_sdhc_send_cmd;
+    card->host_handle_irq = &priv_sdhc_handle_irq;
+    card->host_send_command = &priv_sdhc_send_cmd;
+    card->host_is_voltage_compatible = &priv_sdhc_is_voltage_compatible;
+    card->host_reset = &priv_sdhc_reset;
     card->host = sdhc;
-    /* Initialise the card */
-    sdhc_reset(sdhc);
-    sdhc_voltage_validation(sdhc);
-    sdhc_card_registry(sdhc);
     return sdhc;
 }
 
