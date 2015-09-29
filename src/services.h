@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <platsupport/io.h>
+#include <platsupport/delay.h>
 
 #define _malloc(...) malloc(__VA_ARGS__)
 #define _free(...) free(__VA_ARGS__)
@@ -21,12 +22,8 @@
 #endif
 
 static inline void
-udelay(long _us){
-    volatile long us = _us;
-    while(us--){
-        volatile long i = 1000;
-        while(i--);
-    }
+udelay(long us){
+    ps_udelay(us);
 }
 
 /**
