@@ -22,6 +22,11 @@
 #define SDHC3_SIZE  0x1000
 #define SDHC4_SIZE  0x1000
 
+#define SDHC1_IRQ   54
+#define SDHC2_IRQ   55
+#define SDHC3_IRQ   56
+#define SDHC4_IRQ   57
+
 enum sdio_id
 sdio_default_id(void)
 {
