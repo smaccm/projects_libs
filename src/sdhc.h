@@ -17,6 +17,7 @@
 struct sdhc {
     /* Device data */
     volatile void *base;
+    int version;
     int nirqs;
     const int* irq_table;
     /* Transaction queue */

@@ -55,7 +55,7 @@
 #define VEND_SPEC             0xC0 //Vendor Specific Register 
 #define MMC_BOOT              0xC4 //MMC Boot Register 
 #define VEND_SPEC2            0xC8 //Vendor Specific 2 Register  
-#define HOST_VERSION          0xFE //Host Version
+#define HOST_VERSION          0xFC //Host Version (0xFE adjusted for alignment)
 
 
 /* Block Attributes Register */
@@ -543,6 +543,8 @@ sdhc_init(void* iobase, const int* irq_table, int nirqs, ps_io_ops_t* io_ops,
     sdhc->dalloc = &io_ops->dma_manager;
     sdhc->cmd_list_head = NULL;
     sdhc->cmd_list_tail = &sdhc->cmd_list_head;
+    sdhc->version = (readl(sdhc->base + HOST_VERSION) >> 16) & 0xff;
+    printf("SDHC version %d.00\n", sdhc->version + 1);
     /* Initialise SDIO structure */
     dev->handle_irq = &sdhc_handle_irq;
     dev->nth_irq = &sdhc_get_nth_irq;
@@ -550,6 +552,7 @@ sdhc_init(void* iobase, const int* irq_table, int nirqs, ps_io_ops_t* io_ops,
     dev->is_voltage_compatible = &sdhc_is_voltage_compatible;
     dev->reset = &sdhc_reset;
     dev->priv = sdhc;
+    /* Done */
     return 0;
 }
 
