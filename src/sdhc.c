@@ -512,8 +512,20 @@ sdhc_reset(sdio_host_dev_t* sdio)
     return 0;
 }
 
+static int
+sdhc_get_nth_irq(sdio_host_dev_t* sdio, int n){
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
+    if(n < 0 || n >= host->nirqs){
+        return -1;
+    }else{
+        return host->irq_table[n];
+    }
+}
+
+
 int
-sdhc_init(void* iobase, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
+sdhc_init(void* iobase, const int* irq_table, int nirqs, ps_io_ops_t* io_ops,
+          sdio_host_dev_t* dev)
 {
     sdhc_dev_t sdhc;
     /* Allocate memory for SDHC structure */
@@ -524,11 +536,14 @@ sdhc_init(void* iobase, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
     }
     /* Complete the initialisation of the SDHC structure */
     sdhc->base = iobase;
+    sdhc->nirqs = nirqs;
+    sdhc->irq_table = irq_table;
     sdhc->dalloc = &io_ops->dma_manager;
     sdhc->cmd_list_head = NULL;
     sdhc->cmd_list_tail = &sdhc->cmd_list_head;
     /* Initialise SDIO structure */
     dev->handle_irq = &sdhc_handle_irq;
+    dev->nth_irq = &sdhc_get_nth_irq;
     dev->send_command = &sdhc_send_cmd;
     dev->is_voltage_compatible = &sdhc_is_voltage_compatible;
     dev->reset = &sdhc_reset;

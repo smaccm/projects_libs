@@ -66,6 +66,14 @@ long mmc_block_write(mmc_card_t mmc_card, unsigned long start_block, int nblocks
                      const void* buf, mmc_cb cb, void* token);
 
 /**
+ * Returns the nth IRQ that this underlying device generates
+ * @param[in] mmc  A handle to an initialised MMC card
+ * @param[in] n    Index of the desired IRQ.
+ * @return         The IRQ number, or -1 if n is invalid
+ */
+int mmc_nth_irq(mmc_card_t mmc, int n);
+
+/**
  * Passes control to the IRQ handler of the MMC host controller
  * @param[in] mmc  A handle to an initialised MMC card
  * @param[in] irq  The IRQ number that was triggered.

@@ -29,6 +29,15 @@
 #define SDHC3_IRQ   108
 #define SDHC4_IRQ   109
 
+static const int
+_sdhc_irq_table[] = {
+    [SDHC0] = SDHC0_IRQ,
+    [SDHC1] = SDHC1_IRQ,
+    [SDHC2] = SDHC2_IRQ,
+    [SDHC3] = SDHC3_IRQ,
+    [SDHC4] = SDHC4_IRQ
+};
+
 enum sdio_id
 sdio_default_id(void)
 {
@@ -63,7 +72,8 @@ sdio_init(enum sdio_id id, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
         LOG_ERROR("Failed to map device memory for SDHC\n");
         return -1;
     }
-    ret = sdhc_init(iobase, io_ops, dev);
+
+    ret = sdhc_init(iobase, &_sdhc_irq_table[id], 1, io_ops, dev);
     if (ret) {
         LOG_ERROR("Failed to initialise SDHC\n");
         return -1;

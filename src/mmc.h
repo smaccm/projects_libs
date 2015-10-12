@@ -176,6 +176,12 @@ host_send_command(struct mmc_card* card, struct mmc_cmd *cmd, sdio_cb cb, void* 
 }
 
 static inline int
+host_nth_irq(mmc_card_t card, int n)
+{
+    return sdio_nth_irq(card->sdio, n);
+}
+
+static inline int
 host_handle_irq(struct mmc_card* card, int irq)
 {
     return sdio_handle_irq(card->sdio, irq);

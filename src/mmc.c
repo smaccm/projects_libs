@@ -340,7 +340,6 @@ mmc_blockwrite_completion_cb(struct sdio_host_dev* sdio, int stat, struct mmc_cm
     struct mmc_completion_token *t;
     size_t bytes;
 
-printf("%s\n", __func__);
     t = (struct mmc_completion_token*)token;
     if(stat == 0){
         bytes = cmd->data->block_size * cmd->data->blocks;
@@ -361,7 +360,6 @@ mmc_blockread_completion_cb(struct sdio_host_dev* sdio, int stat,
 {
     struct mmc_completion_token *t;
     size_t bytes;
-printf("%s\n", __func__);
     t = (struct mmc_completion_token*)token;
     if(stat == 0){
         bytes = cmd->data->block_size * cmd->data->blocks;
@@ -592,7 +590,15 @@ mmc_card_capacity(mmc_card_t mmc_card)
 
 
 int
+mmc_nth_irq(mmc_card_t mmc, int n)
+{
+    return host_nth_irq(mmc, n);
+}
+
+int
 mmc_handle_irq(mmc_card_t mmc, int irq)
 {
     return host_handle_irq(mmc, irq);
 }
+
+
