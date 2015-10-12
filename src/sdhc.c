@@ -236,7 +236,7 @@ sdhc_next_cmd(sdhc_dev_t host)
     /* The command should be MSB and the first two bits should be '00' */
     val = (cmd->index & CMD_XFR_TYP_CMDINX_MASK) << CMD_XFR_TYP_CMDINX_SHF;
     val &= ~(CMD_XFR_TYP_CMDTYP_MASK << CMD_XFR_TYP_CMDTYP_SHF);
-    if (cmd->data) {
+    if (cmd->data && host->version == 2) {
         /* Some controllers implement MIX_CTRL as part of the XFR_TYP */
         val |= MIX_CTRL_BCEN | MIX_CTRL_DMAEN;
         if (cmd->data->blocks > 1) {
@@ -543,8 +543,8 @@ sdhc_init(void* iobase, const int* irq_table, int nirqs, ps_io_ops_t* io_ops,
     sdhc->dalloc = &io_ops->dma_manager;
     sdhc->cmd_list_head = NULL;
     sdhc->cmd_list_tail = &sdhc->cmd_list_head;
-    sdhc->version = (readl(sdhc->base + HOST_VERSION) >> 16) & 0xff;
-    printf("SDHC version %d.00\n", sdhc->version + 1);
+    sdhc->version = ((readl(sdhc->base + HOST_VERSION) >> 16) & 0xff) + 1;
+    printf("SDHC version %d.00\n", sdhc->version);
     /* Initialise SDIO structure */
     dev->handle_irq = &sdhc_handle_irq;
     dev->nth_irq = &sdhc_get_nth_irq;
