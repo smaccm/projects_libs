@@ -302,23 +302,23 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
     int_status = readl(host->base + INT_STATUS);
 
     /* Handle errors */
-    if(int_status & INT_STATUS_ERR){
+    if (int_status & INT_STATUS_ERR) {
         LOG_ERROR("CMD/DATA transfer ERROR...");
         cmd->complete = -1;
     }
-    if(int_status & INT_STATUS_CTOE){
+    if (int_status & INT_STATUS_CTOE) {
         LOG_ERROR("CMD Timeout...");
         cmd->complete = -1;
     }
-    if(int_status & INT_STATUS_DTOE) {
+    if (int_status & INT_STATUS_DTOE) {
         LOG_ERROR("Data transfer error.\n");
         cmd->complete = -1;
     }
 
     /* Command complete */
-    if (int_status & INT_STATUS_CC){
+    if (int_status & INT_STATUS_CC) {
         /* Command complete */
-        switch(cmd->rsp_type){
+        switch (cmd->rsp_type) {
         case MMC_RSP_TYPE_R2:
             cmd->response[0] = readl(host->base + CMD_RSP0);
             cmd->response[1] = readl(host->base + CMD_RSP1);
@@ -326,10 +326,11 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
             cmd->response[3] = readl(host->base + CMD_RSP3);
             break;
         case MMC_RSP_TYPE_R1b:
-            if(cmd->index == MMC_STOP_TRANSMISSION)
+            if (cmd->index == MMC_STOP_TRANSMISSION) {
                 cmd->response[3] = readl(host->base + CMD_RSP3);
-            else
+            } else {
                 cmd->response[0] = readl(host->base + CMD_RSP0);
+            }
             break;
         case MMC_RSP_TYPE_NONE:
             break;
@@ -338,31 +339,31 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
         }
 
         /* If there is no data segment, the transfer is complete */
-        if(cmd->data == NULL){
+        if (cmd->data == NULL) {
             cmd->complete = 1;
         }
     }
     /* Data complete */
-    if(int_status & INT_STATUS_TC){
+    if (int_status & INT_STATUS_TC) {
         cmd->complete = 1;
     }
     /* Clear flags */
     writel(int_status, host->base + INT_STATUS);
 
     /* If the transaction has finished */
-    if(cmd->complete != 0){
-        if(cmd->next == NULL){
+    if (cmd->complete != 0) {
+        if (cmd->next == NULL) {
             /* Shutdown */
             host->cmd_list_head = NULL;
             host->cmd_list_tail = &host->cmd_list_head;
-        }else{
+        } else {
             /* Next */
             host->cmd_list_head = cmd->next;
             sdhc_next_cmd(host);
         }
         cmd->next = NULL;
         /* Send callback if required */
-        if(cmd->cb){
+        if (cmd->cb) {
             cmd->cb(sdio, 0, cmd, cmd->token);
         }
     }
@@ -399,26 +400,26 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
     host->cmd_list_tail = &cmd->next;
 
     /* If idle, bump */
-    if(host->cmd_list_head == cmd){
+    if (host->cmd_list_head == cmd) {
         ret = sdhc_next_cmd(host);
-        if(ret){
+        if (ret) {
             return ret;
         }
     }
 
     /* finalise the transacton */
-    if(cb == NULL){
+    if (cb == NULL) {
         /* Wait for completion */
-        while(!cmd->complete){
+        while (!cmd->complete) {
             sdhc_handle_irq(sdio, 0);
         }
         /* Return result */
-        if(cmd->complete < 0){
+        if (cmd->complete < 0) {
             return cmd->complete;
-        }else{
+        } else {
             return 0;
         }
-    }else{
+    } else {
         /* Defer to IRQ handler */
         return 0;
     }
@@ -513,11 +514,12 @@ sdhc_reset(sdio_host_dev_t* sdio)
 }
 
 static int
-sdhc_get_nth_irq(sdio_host_dev_t* sdio, int n){
+sdhc_get_nth_irq(sdio_host_dev_t* sdio, int n)
+{
     sdhc_dev_t host = sdio_get_sdhc(sdio);
-    if(n < 0 || n >= host->nirqs){
+    if (n < 0 || n >= host->nirqs) {
         return -1;
-    }else{
+    } else {
         return host->irq_table[n];
     }
 }
