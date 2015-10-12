@@ -175,38 +175,11 @@ print_sdhc_regs(struct sdhc *host)
 }
 
 
-/** Pass control to the devices IRQ handler
- * @param[in] sd_dev  The sdhc interface device that triggered
- *                    the interrupt event.
- */
 static int
-sdhc_handle_irq(sdio_host_dev_t* sdio, int irq)
+sdhc_next_cmd(sdhc_dev_t host)
 {
-    sdhc_dev_t host = sdio_get_sdhc(sdio);
-    (void)host;
-    (void)irq;
-    D(DBG_INFO, "SDHC intr fired ...\n");
-    return 0;
-}
-
-static int
-sdhc_is_voltage_compatible(sdio_host_dev_t* sdio, int mv)
-{
+    struct mmc_cmd* cmd = host->cmd_list_head;
     uint32_t val;
-    sdhc_dev_t host = sdio_get_sdhc(sdio);
-    val = readl(host->base + HOST_CTRL_CAP);
-    if (mv == 3300 && (val & HOST_CTRL_CAP_VS33)) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-static int
-sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* token)
-{
-    uint32_t val;
-    sdhc_dev_t host = sdio_get_sdhc(sdio);
 
     writel(0xffffffff, host->base + INT_STATUS);
 
@@ -310,61 +283,146 @@ sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* toke
 
     /* Issue the command. */
     writel(val, host->base + CMD_XFR_TYP);
-
-    /* Wait for the response. */
-    do {
-        val = readl(host->base + INT_STATUS);
-    } while (!(val & (INT_STATUS_CC | INT_STATUS_CTOE)));
-
-    /* Clear complete bit and error bits */
-    writel(val, host->base + INT_STATUS);
-
-    /* Return 1 when timeout */
-    if (val & INT_STATUS_CTOE) {
-        D(DBG_ERR, "CMD Timeout...\n");
-        return 1;
-    }
-
-    /* Copy response */
-    if (cmd->rsp_type == MMC_RSP_TYPE_R2) {
-        cmd->response[0] = readl(host->base + CMD_RSP0);
-        cmd->response[1] = readl(host->base + CMD_RSP1);
-        cmd->response[2] = readl(host->base + CMD_RSP2);
-        cmd->response[3] = readl(host->base + CMD_RSP3);
-    } else if (cmd->rsp_type == MMC_RSP_TYPE_R1b &&
-               cmd->index == MMC_STOP_TRANSMISSION) {
-        cmd->response[3] = readl(host->base + CMD_RSP3);
-    } else if (cmd->rsp_type == MMC_RSP_TYPE_NONE) {
-    } else {
-        cmd->response[0] = readl(host->base + CMD_RSP0);
-    }
-
-    D(DBG_INFO, "CMD_RSP %u: %x %x %x %x\n", cmd->index,
-      cmd->response[0], cmd->response[1], cmd->response[2], cmd->response[3]);
-
-    /* Wait for the data transmission to complete. */
-    if (cmd->data) {
-        /* Wait for the transfer completion. */
-        D(DBG_INFO, "Waiting for read transaction completion\n");
-        do {
-            val = readl(host->base + INT_STATUS);
-        } while (!(val & (INT_STATUS_TC | INT_STATUS_ERR | INT_STATUS_DINT)));
-        writel(val, host->base + INT_STATUS);
-        D(DBG_INFO, "Read transaction completed\n");
-
-        /* Check CRC error. */
-        if (val & INT_STATUS_DTOE) {
-            D(DBG_INFO, "Data transfer error.\n");
-        }
-        if (val & INT_STATUS_ERR) {
-            printf("Data transfer error!\n");
-        }
-
-        D(DBG_INFO, "Read/write complete...\n");
-    }
     return 0;
 }
 
+
+
+/** Pass control to the devices IRQ handler
+ * @param[in] sd_dev  The sdhc interface device that triggered
+ *                    the interrupt event.
+ */
+static int
+sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
+{
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
+    struct mmc_cmd* cmd = host->cmd_list_head;
+    uint32_t int_status;
+
+    int_status = readl(host->base + INT_STATUS);
+
+    /* Handle errors */
+    if(int_status & INT_STATUS_ERR){
+        LOG_ERROR("CMD/DATA transfer ERROR...");
+        cmd->complete = -1;
+    }
+    if(int_status & INT_STATUS_CTOE){
+        LOG_ERROR("CMD Timeout...");
+        cmd->complete = -1;
+    }
+    if(int_status & INT_STATUS_DTOE) {
+        LOG_ERROR("Data transfer error.\n");
+        cmd->complete = -1;
+    }
+
+    /* Command complete */
+    if (int_status & INT_STATUS_CC){
+        /* Command complete */
+        switch(cmd->rsp_type){
+        case MMC_RSP_TYPE_R2:
+            cmd->response[0] = readl(host->base + CMD_RSP0);
+            cmd->response[1] = readl(host->base + CMD_RSP1);
+            cmd->response[2] = readl(host->base + CMD_RSP2);
+            cmd->response[3] = readl(host->base + CMD_RSP3);
+            break;
+        case MMC_RSP_TYPE_R1b:
+            if(cmd->index == MMC_STOP_TRANSMISSION)
+                cmd->response[3] = readl(host->base + CMD_RSP3);
+            else
+                cmd->response[0] = readl(host->base + CMD_RSP0);
+            break;
+        case MMC_RSP_TYPE_NONE:
+            break;
+        default:
+            cmd->response[0] = readl(host->base + CMD_RSP0);
+        }
+
+        /* If there is no data segment, the transfer is complete */
+        if(cmd->data == NULL){
+            cmd->complete = 1;
+        }
+    }
+    /* Data complete */
+    if(int_status & INT_STATUS_TC){
+        cmd->complete = 1;
+    }
+    /* Clear flags */
+    writel(int_status, host->base + INT_STATUS);
+
+    /* If the transaction has finished */
+    if(cmd->complete != 0){
+        if(cmd->next == NULL){
+            /* Shutdown */
+            host->cmd_list_head = NULL;
+            host->cmd_list_tail = &host->cmd_list_head;
+        }else{
+            /* Next */
+            host->cmd_list_head = cmd->next;
+            sdhc_next_cmd(host);
+        }
+        cmd->next = NULL;
+        /* Send callback if required */
+        if(cmd->cb){
+            cmd->cb(sdio, 0, cmd, cmd->token);
+        }
+    }
+
+    return 0;
+}
+
+static int
+sdhc_is_voltage_compatible(sdio_host_dev_t* sdio, int mv)
+{
+    uint32_t val;
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
+    val = readl(host->base + HOST_CTRL_CAP);
+    if (mv == 3300 && (val & HOST_CTRL_CAP_VS33)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
+sdhc_send_cmd(sdio_host_dev_t* sdio, struct mmc_cmd *cmd, sdio_cb cb, void* token)
+{
+    sdhc_dev_t host = sdio_get_sdhc(sdio);
+    int ret;
+
+    /* Initialise callbacks */
+    cmd->complete = 0;
+    cmd->next = NULL;
+    cmd->cb = cb;
+    cmd->token = token;
+    /* Append to list */
+    *host->cmd_list_tail = cmd;
+    host->cmd_list_tail = &cmd->next;
+
+    /* If idle, bump */
+    if(host->cmd_list_head == cmd){
+        ret = sdhc_next_cmd(host);
+        if(ret){
+            return ret;
+        }
+    }
+
+    /* finalise the transacton */
+    if(cb == NULL){
+        /* Wait for completion */
+        while(!cmd->complete){
+            sdhc_handle_irq(sdio, 0);
+        }
+        /* Return result */
+        if(cmd->complete < 0){
+            return cmd->complete;
+        }else{
+            return 0;
+        }
+    }else{
+        /* Defer to IRQ handler */
+        return 0;
+    }
+}
 
 /** Software Reset */
 static int
@@ -467,6 +525,8 @@ sdhc_init(void* iobase, ps_io_ops_t* io_ops, sdio_host_dev_t* dev)
     /* Complete the initialisation of the SDHC structure */
     sdhc->base = iobase;
     sdhc->dalloc = &io_ops->dma_manager;
+    sdhc->cmd_list_head = NULL;
+    sdhc->cmd_list_tail = &sdhc->cmd_list_head;
     /* Initialise SDIO structure */
     dev->handle_irq = &sdhc_handle_irq;
     dev->send_command = &sdhc_send_cmd;

@@ -24,6 +24,14 @@
 #define D(...) do{}while(0)
 #endif
 
+struct mmc_completion_token {
+    struct mmc_card* card;
+    mmc_cb cb;
+    void* token;
+    void* buf;
+    void* user_buf;
+};
+
 
 static uint32_t slice_bits(uint32_t *val, int start, int size)
 {
@@ -287,13 +295,97 @@ mmc_reset(mmc_card_t card)
     return 0;
 }
 
+static struct mmc_cmd*
+mmc_cmd_new(uint32_t index, uint32_t arg, int rsp_type, int has_data)
+{
+    struct mmc_cmd* cmd;
+    cmd = malloc(sizeof(*cmd));
+    if(cmd == NULL){
+        return NULL;
+    }
+    /* Transaction Data */
+    if(has_data){
+        cmd->data = malloc(sizeof(*cmd->data));
+        if(cmd->data == NULL){
+            free(cmd);
+            return NULL;
+        }
+    }else{
+        cmd->data = NULL;
+    }
+    /* Command */
+    cmd->index = index;
+    cmd->arg = arg;
+    cmd->rsp_type = rsp_type;
+    /* Transaction maintenance */
+    cmd->cb = NULL;
+    cmd->token = NULL;
+    cmd->next = NULL;
+    cmd->complete = 0;
+    return cmd;
+}
+
+static void
+mmc_cmd_destroy(struct mmc_cmd* cmd)
+{
+    if(cmd->data)
+        free(cmd->data);
+    free(cmd);
+}
+
+static void
+mmc_blockwrite_completion_cb(struct sdio_host_dev* sdio, int stat, struct mmc_cmd* cmd,
+                  void* token)
+{
+    struct mmc_completion_token *t;
+    size_t bytes;
+
+printf("%s\n", __func__);
+    t = (struct mmc_completion_token*)token;
+    if(stat == 0){
+        bytes = cmd->data->block_size * cmd->data->blocks;
+    }else{
+        bytes = 0;
+    }
+    /* Call the registered function */
+    t->cb(t->card, stat, bytes, t->token);
+    /* Free memory */
+    mmc_cmd_destroy(cmd);
+    ps_dma_free_pinned(t->card->dalloc, t->buf, bytes);
+    free(t);
+}
+
+static void
+mmc_blockread_completion_cb(struct sdio_host_dev* sdio, int stat,
+                            struct mmc_cmd* cmd, void* token)
+{
+    struct mmc_completion_token *t;
+    size_t bytes;
+printf("%s\n", __func__);
+    t = (struct mmc_completion_token*)token;
+    if(stat == 0){
+        bytes = cmd->data->block_size * cmd->data->blocks;
+    }else{
+        bytes = 0;
+    }
+    /* Call the registered function */
+    t->cb(t->card, stat, bytes, t->token);
+    /* Copy in the data */
+    memcpy(t->user_buf, t->buf, bytes);
+    /* Free memory */
+    mmc_cmd_destroy(cmd);
+    ps_dma_free_pinned(t->card->dalloc, t->buf, bytes);
+    free(t);
+}
+
+
 int
 mmc_init(sdio_host_dev_t* sdio, ps_io_ops_t *io_ops, mmc_card_t* mmc_card)
 {
     mmc_card_t mmc;
 
     /* Allocate the mmc card structure */
-    mmc = (mmc_card_t)_malloc(sizeof(*mmc));
+    mmc = (mmc_card_t)malloc(sizeof(*mmc));
     assert(mmc);
     if (!mmc) {
         return -1;
@@ -333,39 +425,70 @@ long
 mmc_block_read(mmc_card_t mmc_card, unsigned long start,
                int nblocks, void* data, mmc_cb cb, void* token)
 {
-    struct mmc_cmd cmd;
-    struct mmc_data mdata;
+    struct mmc_cmd* cmd;
     void* buf;
     uintptr_t pbuf = 0;
     int bs = mmc_block_size(mmc_card);
     int bytes = bs * nblocks;
     unsigned long ret;
+    uint32_t arg;
+    /* Determine command argument */
+    if(mmc_card->high_capacity){
+        arg = start;
+    }else{
+        arg = start + bs;
+    }
+    /* Allocate command structure */
+    cmd = mmc_cmd_new(MMC_READ_SINGLE_BLOCK, arg, MMC_RSP_TYPE_R1, 1);
+    if(cmd == NULL){
+        return -1;
+    }
+
     /* Allocate the dma buffer */
     buf = ps_dma_alloc_pinned(mmc_card->dalloc, bytes, 0x1000, 0, PS_MEM_NORMAL, &pbuf);
-    assert(buf);
-    /* Populate the data descriptor */
-    mdata.pbuf = pbuf;
-    mdata.data_addr = start;
-    mdata.block_size = bs;
-    mdata.blocks = nblocks;
-    /* Write the block */
-    cmd.data = &mdata;
-    cmd.index = MMC_READ_SINGLE_BLOCK;
-    if (mmc_card->high_capacity) {
-        cmd.arg = mdata.data_addr;
-    } else {
-        cmd.arg = mdata.data_addr * mdata.block_size;
+    if(!buf){
+        mmc_cmd_destroy(cmd);
+        return -1;
     }
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
+    /* Populate the data descriptor */
+    cmd->data->pbuf = pbuf;
+    cmd->data->data_addr = start;
+    cmd->data->block_size = bs;
+    cmd->data->blocks = nblocks;
 
-    ret = host_send_command(mmc_card, &cmd, NULL, NULL);
-    /* Copy in the data */
-    memcpy(data, buf, bytes);
-    ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    if (ret) {
+    /* Send the command */
+    if(cb){
+        struct mmc_completion_token* mmc_token;
+        mmc_token = (struct mmc_completion_token*)malloc(sizeof(*mmc_token));
+        if(mmc_token == NULL){
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+            mmc_cmd_destroy(cmd);
+            return -1;
+        }
+        mmc_token->buf = buf;
+        mmc_token->card = mmc_card;
+        mmc_token->cb = cb;
+        mmc_token->token = token;
+        mmc_token->user_buf = data;
+        ret = host_send_command(mmc_card, cmd, &mmc_blockread_completion_cb,
+                                mmc_token);
+        if(ret){
+            free(mmc_token);
+            mmc_cmd_destroy(cmd);
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+        }
         return ret;
-    } else {
-        return mdata.block_size * mdata.blocks;
+    }else{
+        ret = host_send_command(mmc_card, cmd, NULL, NULL);
+        if(ret == 0){
+            /* Copy in the data */
+            memcpy(data, buf, bytes);
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+            return bytes;
+        }else{
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+            return ret;
+        }
     }
 }
 
@@ -374,39 +497,72 @@ long
 mmc_block_write(mmc_card_t mmc_card, unsigned long start,
                 int nblocks, const void* data, mmc_cb cb, void* token)
 {
-    struct mmc_cmd cmd;
-    struct mmc_data mdata;
+    struct mmc_cmd* cmd;
     void* buf;
     uintptr_t pbuf = 0;
     int bs = mmc_block_size(mmc_card);
     int bytes = bs * nblocks;
     unsigned long ret;
+    uint32_t arg;
+
+    /* Determine command argument */
+    if(mmc_card->high_capacity){
+        arg = start;
+    }else{
+        arg = start + bs;
+    }
+    /* Allocate command structure */
+    cmd = mmc_cmd_new(MMC_WRITE_BLOCK, arg, MMC_RSP_TYPE_R1, 1);
+    if(cmd == NULL){
+        return -1;
+    }
+
     /* Allocate the dma buffer */
     buf = ps_dma_alloc_pinned(mmc_card->dalloc, bytes, 0x1000, 0, PS_MEM_NORMAL, &pbuf);
-    assert(buf);
+    if(!buf){
+        mmc_cmd_destroy(cmd);
+        return -1;
+    }
     /* Populate the data descriptor */
-    mdata.pbuf = pbuf;
-    mdata.data_addr = start;
-    mdata.block_size = bs;
-    mdata.blocks = nblocks;
+    cmd->data->pbuf = pbuf;
+    cmd->data->data_addr = start;
+    cmd->data->block_size = bs;
+    cmd->data->blocks = nblocks;
+
     /* Copy in the data */
     memcpy(buf, data, bytes);
-    /* Write the block */
-    cmd.data = &mdata;
-    cmd.index = MMC_WRITE_BLOCK;
-    if (mmc_card->high_capacity) {
-        cmd.arg = mdata.data_addr;
-    } else {
-        cmd.arg = mdata.data_addr * mdata.block_size;
-    }
-    cmd.rsp_type = MMC_RSP_TYPE_R1;
-    ret = host_send_command(mmc_card, &cmd, NULL, NULL);
-    /* Free memory */
-    ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
-    if (ret) {
+
+    /* Send the command */
+    if(cb){
+        struct mmc_completion_token* mmc_token;
+        mmc_token = (struct mmc_completion_token*)malloc(sizeof(*mmc_token));
+        if(mmc_token == NULL){
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+            mmc_cmd_destroy(cmd);
+            return -1;
+        }
+        mmc_token->card = mmc_card;
+        mmc_token->cb = cb;
+        mmc_token->token = token;
+        mmc_token->buf = buf;
+        mmc_token->user_buf = NULL;
+        ret = host_send_command(mmc_card, cmd, &mmc_blockwrite_completion_cb,
+                                mmc_token);
+        if(ret){
+            free(mmc_token);
+            mmc_cmd_destroy(cmd);
+            ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+        }
         return ret;
-    } else {
-        return mdata.block_size * mdata.blocks;
+    }else{
+        ret = host_send_command(mmc_card, cmd, NULL, NULL);
+        mmc_cmd_destroy(cmd);
+        ps_dma_free_pinned(mmc_card->dalloc, buf, bytes);
+        if (ret) {
+            return ret;
+        } else {
+            return bytes;
+        }
     }
 }
 
@@ -434,3 +590,9 @@ mmc_card_capacity(mmc_card_t mmc_card)
     return capacity;
 }
 
+
+int
+mmc_handle_irq(mmc_card_t mmc, int irq)
+{
+    return host_handle_irq(mmc, irq);
+}

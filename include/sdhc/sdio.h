@@ -18,7 +18,7 @@
 /* TODO turn this into sdio_cmd */
 struct mmc_cmd;
 struct sdio_host_dev;
-typedef void (*sdio_cb)(struct sdio_host_dev* sdio, struct mmc_cmd* cmd, void* token);
+typedef void (*sdio_cb)(struct sdio_host_dev* sdio, int status, struct mmc_cmd* cmd, void* token);
 
 struct sdio_host_dev {
     int (*reset)(struct sdio_host_dev* sdio);

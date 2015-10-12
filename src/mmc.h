@@ -109,16 +109,19 @@ struct mmc_data {
 };
 
 struct mmc_cmd {
-    uint32_t        index;
-    int             type;
-    uint32_t        arg;
-    int             rsp_type;
-    uint32_t        response[4];
-    /* Data payload */
+    /* Data */
+    uint32_t index;
+    uint32_t arg;
+    uint32_t response[4];
     struct mmc_data *data;
+    /* Type */
+    enum mmc_rsp_type rsp_type;
     /* For async handling */
+    sdio_cb         cb;
     void*           token;
-    mmc_cb          cb;
+    /* For queueing */
+    struct mmc_cmd* next;
+    int complete;
 };
 
 struct cid {

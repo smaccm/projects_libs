@@ -16,6 +16,8 @@
 
 struct sdhc {
     volatile void   *base;
+    struct mmc_cmd* cmd_list_head;
+    struct mmc_cmd** cmd_list_tail;
     ps_dma_man_t* dalloc;
 };
 typedef struct sdhc* sdhc_dev_t;
