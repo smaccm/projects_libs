@@ -102,6 +102,7 @@ enum mmc_card_status {
 
 struct mmc_data {
     uintptr_t  pbuf;
+    void*      vbuf;
     uint32_t   data_addr;
     uint32_t   block_size;
     uint32_t   blocks;
