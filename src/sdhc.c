@@ -141,7 +141,7 @@
 #define HOST_CTRL_CAP_HSS       (1 << 21) //High Speed Support
 #define HOST_CTRL_CAP_ADMAS     (1 << 20) //ADMA Support
 #define HOST_CTRL_CAP_MBL_SHF   16        //Max Block Length
-#define HOST_CTRL_CAP_MBL_MASK  0x7       //Max Block Length
+#define HOST_CTRL_CAP_MBL_MASK  0x3       //Max Block Length
 
 /* Mixer Control Register */
 #define MIX_CTRL_MSBSEL         (1 << 5)  //Multi/Single Block Select.
@@ -157,6 +157,12 @@
 
 #define writel(v, a)  (*(volatile uint32_t*)(a) = (v))
 #define readl(a)      (*(volatile uint32_t*)(a))
+
+enum dma_mode {
+    DMA_MODE_NONE,
+    DMA_MODE_SDMA,
+    DMA_MODE_ADMA
+};
 
 static inline sdhc_dev_t
 sdio_get_sdhc(sdio_host_dev_t* sdio)
@@ -174,22 +180,61 @@ print_sdhc_regs(struct sdhc *host)
     }
 }
 
+static inline enum dma_mode
+get_dma_mode(struct sdhc* host, struct mmc_cmd* cmd)
+{
+    if (cmd->data == NULL) {
+        return DMA_MODE_NONE;
+    }
+    if (cmd->data->pbuf == 0) {
+        return DMA_MODE_NONE;
+    }
+    /* Currently only SDMA supported */
+    return DMA_MODE_SDMA;
+}
+
+static inline int
+cap_sdma_supported(struct sdhc *host)
+{
+    uint32_t v;
+    v = readl(host->base + HOST_CTRL_CAP);
+    return !!(v & HOST_CTRL_CAP_DMAS);
+}
+
+static inline int
+cap_max_buffer_size(struct sdhc *host)
+{
+    uint32_t v;
+    v = readl(host->base + HOST_CTRL_CAP);
+    v = ((v >> HOST_CTRL_CAP_MBL_SHF) & HOST_CTRL_CAP_MBL_MASK);
+    return 512 << v;
+}
 
 static int
 sdhc_next_cmd(sdhc_dev_t host)
 {
     struct mmc_cmd* cmd = host->cmd_list_head;
     uint32_t val;
+    uint32_t mix_ctrl;
 
-    writel(0xffffffff, host->base + INT_STATUS);
+    /* Enable IRQs */
+    val = ( INT_STATUS_ADMAE | INT_STATUS_OVRCURE | INT_STATUS_DEBE
+            | INT_STATUS_DCE   | INT_STATUS_DTOE    | INT_STATUS_CRM
+            | INT_STATUS_CINS  | INT_STATUS_CIE     | INT_STATUS_CEBE
+            | INT_STATUS_CCE   | INT_STATUS_CTOE    | INT_STATUS_TC
+            | INT_STATUS_CC);
+    if (get_dma_mode(host, cmd) == DMA_MODE_NONE) {
+        val |= INT_STATUS_BRR | INT_STATUS_BWR;
+    }
+    writel(val, host->base + INT_STATUS_EN);
 
     /* Check if the Host is ready for transit. */
-    while ((readl(host->base + PRES_STATE) & PRES_STATE_CIHB) ||
-            (readl(host->base + PRES_STATE) & PRES_STATE_CDIHB));
+    while (readl(host->base + PRES_STATE) & (PRES_STATE_CIHB | PRES_STATE_CDIHB));
     while (readl(host->base + PRES_STATE) & PRES_STATE_DLA);
 
-    /* Two commands need to have at least 8 clock cycles in between. */
-    udelay(1000);
+    /* Two commands need to have at least 8 clock cycles in between.
+     * Lets assume that the hcd will enforce this. */
+    //udelay(1000);
 
     /* Write to the argument register. */
     D(DBG_INFO, "CMD: %d with arg %x ", cmd->index, cmd->arg);
@@ -220,30 +265,34 @@ sdhc_next_cmd(sdhc_dev_t host)
         writel(val, host->base + WTMK_LVL);
 
         /* Set Mixer Control */
-        val = MIX_CTRL_BCEN | MIX_CTRL_DMAEN;
+        mix_ctrl = MIX_CTRL_BCEN;
         if (cmd->data->blocks > 1) {
-            val |= MIX_CTRL_MSBSEL;
+            mix_ctrl |= MIX_CTRL_MSBSEL;
         }
         if (cmd->index == MMC_READ_SINGLE_BLOCK) {
-            val |= MIX_CTRL_DTDSEL;
+            mix_ctrl |= MIX_CTRL_DTDSEL;
         }
-        writel(val, host->base + MIX_CTRL);
 
-        /* Set DMA address */
-        writel(cmd->data->pbuf, host->base + DS_ADDR);
+        /* Configure DMA */
+        if (get_dma_mode(host, cmd) != DMA_MODE_NONE) {
+            /* Enable DMA */
+            mix_ctrl |= MIX_CTRL_DMAEN;
+            /* Set DMA address */
+            writel(cmd->data->pbuf, host->base + DS_ADDR);
+        }
+        /* Record the number of blocks to be sent */
+        host->blocks_remaining = cmd->data->blocks;
     }
 
     /* The command should be MSB and the first two bits should be '00' */
     val = (cmd->index & CMD_XFR_TYP_CMDINX_MASK) << CMD_XFR_TYP_CMDINX_SHF;
     val &= ~(CMD_XFR_TYP_CMDTYP_MASK << CMD_XFR_TYP_CMDTYP_SHF);
-    if (cmd->data && host->version == 2) {
-        /* Some controllers implement MIX_CTRL as part of the XFR_TYP */
-        val |= MIX_CTRL_BCEN | MIX_CTRL_DMAEN;
-        if (cmd->data->blocks > 1) {
-            val |= MIX_CTRL_MSBSEL;
-        }
-        if (cmd->index == MMC_READ_SINGLE_BLOCK) {
-            val |= MIX_CTRL_DTDSEL;
+    if (cmd->data) {
+        if (host->version == 2) {
+            /* Some controllers implement MIX_CTRL as part of the XFR_TYP */
+            val |= mix_ctrl;
+        } else {
+            writel(mix_ctrl, host->base + MIX_CTRL);
         }
     }
 
@@ -301,18 +350,82 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
 
     int_status = readl(host->base + INT_STATUS);
 
-    /* Handle errors */
+    /** Handle errors **/
+    if (int_status & INT_STATUS_TNE) {
+        LOG_ERROR("Tuning error");
+    }
+    if (int_status & INT_STATUS_OVRCURE) {
+        LOG_ERROR("Bus overcurrent"); /* (exl. IMX6) */
+    }
     if (int_status & INT_STATUS_ERR) {
-        LOG_ERROR("CMD/DATA transfer ERROR...");
+        LOG_ERROR("CMD/DATA transfer error"); /* (exl. IMX6) */
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_AC12E) {
+        LOG_ERROR("Auto CMD12 Error");
+        cmd->complete = -1;
+    }
+    /** DMA errors **/
+    if (int_status & INT_STATUS_DMAE) {
+        LOG_ERROR("DMA Error");
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_ADMAE) {
+        LOG_ERROR("ADMA error");       /*  (exl. IMX6) */
+        cmd->complete = -1;
+    }
+    /** DATA errors **/
+    if (int_status & INT_STATUS_DEBE) {
+        LOG_ERROR("Data end bit error");
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_DCE) {
+        LOG_ERROR("Data CRC error");
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_DTOE) {
+        LOG_ERROR("Data transfer error");
+        cmd->complete = -1;
+    }
+    /** CMD errors **/
+    if (int_status & INT_STATUS_CIE) {
+        LOG_ERROR("Command index error");
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_CEBE) {
+        LOG_ERROR("Command end bit error");
+        cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_CCE) {
+        LOG_ERROR("Command CRC error");
         cmd->complete = -1;
     }
     if (int_status & INT_STATUS_CTOE) {
         LOG_ERROR("CMD Timeout...");
         cmd->complete = -1;
     }
-    if (int_status & INT_STATUS_DTOE) {
-        LOG_ERROR("Data transfer error.\n");
+
+    if (int_status & INT_STATUS_TP) {
+        LOG_INFO("Tuning pass");
+    }
+    if (int_status & INT_STATUS_RTE) {
+        LOG_INFO("Retuning event");
+    }
+    if (int_status & INT_STATUS_CINT) {
+        LOG_INFO("Card interrupt");
+    }
+    if (int_status & INT_STATUS_CRM) {
+        LOG_INFO("Card removal");
         cmd->complete = -1;
+    }
+    if (int_status & INT_STATUS_CINS) {
+        LOG_INFO("Card insertion");
+    }
+    if (int_status & INT_STATUS_DINT) {
+        LOG_INFO("DMA interrupt");
+    }
+    if (int_status & INT_STATUS_BGE) {
+        LOG_INFO("Block gap event");
     }
 
     /* Command complete */
@@ -340,11 +453,39 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
 
         /* If there is no data segment, the transfer is complete */
         if (cmd->data == NULL) {
+            assert(cmd->complete == 0);
             cmd->complete = 1;
+        }
+    }
+    /* DATA: Programmed IO handling */
+    if (int_status & (INT_STATUS_BRR | INT_STATUS_BWR)) {
+        volatile uint32_t *io_buf;
+        uint32_t *usr_buf;
+        assert(cmd->data);
+        assert(cmd->data->vbuf);
+        assert(cmd->complete == 0);
+        if (host->blocks_remaining) {
+            io_buf = (volatile uint32_t*)((void*)host->base + DATA_BUFF_ACC_PORT);
+            usr_buf = (uint32_t *)cmd->data->vbuf;
+            if (int_status & INT_STATUS_BRR) {
+                /* Buffer Read Ready */
+                int i;
+                for (i = 0; i < cmd->data->block_size; i += sizeof(*usr_buf)) {
+                    *usr_buf++ = *io_buf;
+                }
+            } else {
+                /* Buffer Write Ready */
+                int i;
+                for (i = 0; i < cmd->data->block_size; i += sizeof(*usr_buf)) {
+                    *io_buf = *usr_buf++;
+                }
+            }
+            host->blocks_remaining--;
         }
     }
     /* Data complete */
     if (int_status & INT_STATUS_TC) {
+        assert(cmd->complete == 0);
         cmd->complete = 1;
     }
     /* Clear flags */

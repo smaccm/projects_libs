@@ -158,7 +158,6 @@ mmc_cmd_add_data(struct mmc_cmd* cmd, void* vbuf, uintptr_t pbuf, uint32_t addr,
         d->data_addr = addr;
         d->block_size = block_size;
         d->blocks = blocks;
-        d->error = 0;
         cmd->data = d;
         return 0;
     } else {

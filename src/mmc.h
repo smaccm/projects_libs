@@ -106,7 +106,6 @@ struct mmc_data {
     uint32_t   data_addr;
     uint32_t   block_size;
     uint32_t   blocks;
-    uint32_t   error;
 };
 
 struct mmc_cmd {

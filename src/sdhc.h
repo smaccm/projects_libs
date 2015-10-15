@@ -23,6 +23,7 @@ struct sdhc {
     /* Transaction queue */
     struct mmc_cmd* cmd_list_head;
     struct mmc_cmd** cmd_list_tail;
+    int blocks_remaining;
     /* DMA allocator */
     ps_dma_man_t* dalloc;
 };
