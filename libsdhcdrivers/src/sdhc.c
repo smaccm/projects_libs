@@ -349,7 +349,11 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
     uint32_t int_status;
 
     int_status = readl(host->base + INT_STATUS);
-
+    if(!cmd){
+        /* Clear flags */
+        writel(int_status, host->base + INT_STATUS);
+        return 0;
+    }
     /** Handle errors **/
     if (int_status & INT_STATUS_TNE) {
         LOG_ERROR("Tuning error");
@@ -492,7 +496,7 @@ sdhc_handle_irq(sdio_host_dev_t* sdio, int irq UNUSED)
     writel(int_status, host->base + INT_STATUS);
 
     /* If the transaction has finished */
-    if (cmd->complete != 0) {
+    if (cmd != NULL && cmd->complete != 0) {
         if (cmd->next == NULL) {
             /* Shutdown */
             host->cmd_list_head = NULL;
@@ -693,7 +697,10 @@ sdhc_init(void* iobase, const int* irq_table, int nirqs, ps_io_ops_t* io_ops,
     dev->is_voltage_compatible = &sdhc_is_voltage_compatible;
     dev->reset = &sdhc_reset;
     dev->priv = sdhc;
-    /* Done */
+    /* Clear IRQs */
+    writel(0, sdhc->base + INT_STATUS_EN);
+    writel(0, sdhc->base + INT_SIGNAL_EN);
+    writel(readl(sdhc->base + INT_STATUS), sdhc->base + INT_STATUS);
     return 0;
 }
 
