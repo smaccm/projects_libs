@@ -9,6 +9,6 @@
 #
 
 libs-$(CONFIG_LIB_SDHC) += libsdhcdrivers
-libsdhcdrivers: libsel4 $(libc) libplatsupport libsel4dma libutils common
+libsdhcdrivers: libsel4 $(libc) libplatsupport libutils common
 
 

@@ -12,7 +12,6 @@
 #define _SDHC_MMC_H_
 
 #include <platsupport/io.h>
-#include <dma/dma.h>
 #include <sdhc/sdio.h>
 
 typedef struct mmc_card* mmc_card_t;

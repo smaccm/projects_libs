@@ -12,7 +12,6 @@ config LIB_SDHC
     bool "Build SDHC interface library"
     depends on HAVE_LIBC
     select LIB_PLATSUPPORT
-    select LIB_SEL4_DMA
     select LIB_UTILS
     default y
 
