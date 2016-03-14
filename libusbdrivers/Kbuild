@@ -9,9 +9,8 @@
 #
 
 libs-$(CONFIG_LIB_USB) += libusbdrivers
-libusbdrivers: libsel4 $(libc) libplatsupport libsel4dma common
+libusbdrivers: libsel4 $(libc) libplatsupport common
 
 ifeq ($(CONFIG_LIB_LWIP),y)
 libusbdrivers: liblwip
 endif
-
