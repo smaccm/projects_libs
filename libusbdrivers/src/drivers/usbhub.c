@@ -261,7 +261,7 @@ _handle_port_change(usb_hub_t h, int port)
                                             C_PORT_CONNECTION);
             ret = usbdev_schedule_xact(h->udev, 0,
                                        h->udev->max_pkt, 0,
-                                       xact, 1, NULL, NULL);
+                                       xact, 2, NULL, NULL);
             assert(ret >= 0);
             if (status & BIT(PORT_CONNECTION)) {
                 HUB_DBG(h, "port %d connected\n", port);
@@ -273,7 +273,7 @@ _handle_port_change(usb_hub_t h, int port)
                 *req = __set_port_feature_req(port, PORT_RESET);
                 ret = usbdev_schedule_xact(h->udev, 0,
                                            h->udev->max_pkt, 0,
-                                           xact, 1, NULL, NULL);
+                                           xact, 2, NULL, NULL);
                 assert(ret >= 0);
                 if (!ret) {
                     /* Reset changes the status so call again */
@@ -294,7 +294,7 @@ _handle_port_change(usb_hub_t h, int port)
                                             C_PORT_ENABLE);
             ret = usbdev_schedule_xact(h->udev, 0,
                                        h->udev->max_pkt, 0,
-                                       xact, 1, NULL, NULL);
+                                       xact, 2, NULL, NULL);
             assert(ret >= 0);
         }
         if (change & BIT(PORT_SUSPEND)) {
@@ -353,7 +353,7 @@ _handle_port_change(usb_hub_t h, int port)
                     *req = __set_port_feature_req(port, PORT_RESET);
                     ret = usbdev_schedule_xact(h->udev, 0,
                                                h->udev->max_pkt, 0,
-                                               xact, 1, NULL, NULL);
+                                               xact, 2, NULL, NULL);
                     assert(ret >= 0);
                     printf("SCheduled!\n");
                     return _handle_port_change(h, port);
@@ -495,7 +495,9 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
     HUB_DBG(h, "Configure HUB\n");
     xact[0].type = PID_SETUP;
     xact[0].len = sizeof(*req);
-    xact[1] = xact[0];
+    xact[1].type = PID_IN;
+    xact[1].len = 0;
+
     err = usb_alloc_xact(h->udev->dman, xact, 2);
     if (err) {
         assert(!err);
@@ -503,7 +505,29 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
     }
     req = xact_get_vaddr(&xact[0]);
     *req = __set_configuration_req(h->cfgno);
-    req = xact_get_vaddr(&xact[1]);
+
+    err = usbdev_schedule_xact(udev, 0, h->udev->max_pkt, 0,
+                               xact, 2, NULL, NULL);
+    if (err < 0) {
+        assert(err >= 0);
+        return -1;
+    }
+    usb_destroy_xact(udev->dman, xact, 2);
+
+    HUB_DBG(h, "Configure interface HUB\n");
+
+    xact[0].type = PID_SETUP;
+    xact[0].len = sizeof(*req);
+    xact[1].type = PID_IN;
+    xact[1].len = 0;
+
+
+    err = usb_alloc_xact(h->udev->dman, xact, 2);
+    if (err) {
+        assert(!err);
+        return -1;
+    }
+    req = xact_get_vaddr(&xact[0]);
     *req = __set_interface_req(h->ifno);
     err = usbdev_schedule_xact(udev, 0, h->udev->max_pkt, 0,
                                xact, 2, NULL, NULL);
@@ -515,17 +539,20 @@ usb_hub_driver_bind(usb_dev_t udev, usb_hub_t* hub)
     /* Power up ports */
     xact[0].type = PID_SETUP;
     xact[0].len = sizeof(*req);
-    usb_alloc_xact(h->udev->dman, xact, 1);
+    xact[1].type = PID_IN;
+    xact[1].len = 0;
+
+    usb_alloc_xact(h->udev->dman, xact, 2);
     req = xact_get_vaddr(&xact[0]);
     for (i = 1; i <= h->nports; i++) {
         HUB_DBG(h, "Power on port %d\n", i);
         *req = __set_port_feature_req(i, PORT_POWER);
         err = usbdev_schedule_xact(h->udev, 0, h->udev->max_pkt,
-                                   0, xact, 1, NULL, NULL);
+                                   0, xact, 2, NULL, NULL);
         assert(err >= 0);
     }
     msdelay(h->power_good_delay_ms);
-    usb_destroy_xact(udev->dman, xact, 1);
+    usb_destroy_xact(udev->dman, xact, 2);
 #if !defined(HUB_ENABLE_IRQS)
     /* Setup ports */
     for (i = 1; i <= h->nports; i++) {

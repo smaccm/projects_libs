@@ -693,9 +693,11 @@ usb_init(enum usb_host_id id, ps_io_ops_t* ioops, usb_t* host)
         return -1;
     }
     err = usb_new_device_with_host(NULL, host, 1, 0, &udev);
-    assert(!err);
-    err = usb_hub_driver_bind(udev, &hub);
 
+    assert(!err);
+
+    err = usb_hub_driver_bind(udev, &hub);
+    assert(!err);
     return 0;
 }
 
