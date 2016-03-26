@@ -142,7 +142,7 @@ devlist_insert(usb_dev_t d)
     }
     /* cycle the list searching for a free address */
     while (host->addrbm & (1 << i)) {
-        if ((1 << i) == NUM_DEVICES) {
+        if (i == NUM_DEVICES) {
             /* Remember address 0 is a special case */
             i = 1;
         } else {
@@ -153,6 +153,14 @@ devlist_insert(usb_dev_t d)
     d->next = host->devlist;
     host->devlist = d;
     host->addrbm |= (1 << i);
+
+    /* Update the next address for next insertion */
+    if ((i + 1) == NUM_DEVICES) {
+        host->next_addr = 1;
+    } else {
+        host->next_addr = i + 1;
+    }
+
     /* return address */
     return i;
 }
@@ -903,5 +911,3 @@ usbdev_get_class(usb_dev_t dev)
 {
     return dev->class;
 }
-
-
