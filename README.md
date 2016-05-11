@@ -1,2 +1,2 @@
 # projects_libs
-Platform independant libraries
+Platform independent libraries
