@@ -7,7 +7,7 @@
  *
  * @TAG(NICTA_BSD)
  */
-
+#ifdef ARCH_ARM
 #include <usb/drivers/usb3503_hub.h>
 #include "../services.h"
 
@@ -161,4 +161,4 @@ usb3503_handle_irq(usb3503_t* hub)
     printf("HUB IRQ status: 0x%02x/0x%02x\n", status, mask);
 }
 
-
+#endif
