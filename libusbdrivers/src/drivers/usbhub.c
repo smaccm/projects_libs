@@ -86,7 +86,7 @@ struct hub_desc {
 static inline struct usbreq
 __clear_port_feature_req(uint16_t port, uint16_t feature) {
     struct usbreq r = {
-        .bmRequestType = 0b00100011,
+        .bmRequestType = (USB_DIR_OUT | USB_TYPE_CLS | USB_RCPT_OTHER),
         .bRequest      = CLR_FEATURE,
         .wValue        = feature,
         .wIndex        = port,
@@ -98,7 +98,7 @@ __clear_port_feature_req(uint16_t port, uint16_t feature) {
 static inline struct usbreq
 __clear_hub_feature_req(uint16_t feature) {
     struct usbreq r = {
-        .bmRequestType = 0b00100000,
+        .bmRequestType = (USB_DIR_OUT | USB_TYPE_CLS | USB_RCPT_DEVICE),
         .bRequest      = CLR_FEATURE,
         .wValue        = feature,
         .wIndex        = 0,
@@ -110,7 +110,7 @@ __clear_hub_feature_req(uint16_t feature) {
 static inline struct usbreq
 __set_port_feature_req(uint16_t port, uint16_t feature) {
     struct usbreq r = {
-        .bmRequestType = 0b00100011,
+        .bmRequestType = (USB_DIR_OUT | USB_TYPE_CLS | USB_RCPT_OTHER),
         .bRequest      = SET_FEATURE,
         .wValue        = feature,
         .wIndex        = port,
@@ -122,7 +122,7 @@ __set_port_feature_req(uint16_t port, uint16_t feature) {
 static inline struct usbreq
 __set_hub_feature_req(uint16_t feature) {
     struct usbreq r = {
-        .bmRequestType = 0b00100000,
+        .bmRequestType = (USB_DIR_OUT | USB_TYPE_CLS | USB_RCPT_DEVICE),
         .bRequest      = SET_FEATURE,
         .wValue        = feature,
         .wIndex        = 0,
@@ -135,7 +135,7 @@ __set_hub_feature_req(uint16_t feature) {
 static inline struct usbreq
 __get_port_status_req(uint16_t port) {
     struct usbreq r = {
-        .bmRequestType = 0b10100011,
+        .bmRequestType = (USB_DIR_IN | USB_TYPE_CLS | USB_RCPT_OTHER),
         .bRequest      = GET_STATUS,
         .wValue        = 0,
         .wIndex        = port,
@@ -148,7 +148,7 @@ __get_port_status_req(uint16_t port) {
 static inline struct usbreq
 __get_hub_status_req(void) {
     struct usbreq r = {
-        .bmRequestType = 0b10100000,
+        .bmRequestType = (USB_DIR_IN | USB_TYPE_CLS | USB_RCPT_DEVICE),
         .bRequest      = GET_STATUS,
         .wValue        = 0,
         .wIndex        = 0,
@@ -160,7 +160,7 @@ __get_hub_status_req(void) {
 static inline struct usbreq
 __get_hub_descriptor_req(void) {
     struct usbreq r = {
-        .bmRequestType = 0b10100000,
+        .bmRequestType = (USB_DIR_IN | USB_TYPE_CLS | USB_RCPT_DEVICE),
         .bRequest      = GET_DESCRIPTOR,
         .wValue        = DESCRIPTOR_TYPE_HUB << 8,
         .wIndex        = 0,
@@ -172,7 +172,7 @@ __get_hub_descriptor_req(void) {
 static inline struct usbreq
 __set_hub_descriptor_req(void) {
     struct usbreq r = {
-        .bmRequestType = 0b00100000,
+        .bmRequestType = (USB_DIR_OUT | USB_TYPE_CLS | USB_RCPT_DEVICE),
         .bRequest      = SET_DESCRIPTOR,
         .wValue        = DESCRIPTOR_TYPE_HUB << 8,
         .wIndex        = 0,
