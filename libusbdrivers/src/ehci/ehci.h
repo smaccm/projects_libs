@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include <sync/spinlock.h>
 #include <usb/usb_host.h>
 #include <usb/drivers/usbhub.h>
 
@@ -246,10 +245,11 @@ struct QHn {
     void* token;      //TODO: In TDn now, to be removed.
     int irq_pending;
     int was_cancelled;
-    sync_spinlock_t lock;
     /* Links */
     uint8_t owner_addr;
     struct QHn* next;
+    /* mutex */
+    void* mutex;
 };
 
 struct ehci_host {
@@ -276,6 +276,7 @@ struct ehci_host {
     volatile struct ehci_host_op  * op_regs;
     /* Support */
     ps_dma_man_t* dman;
+    mutex_ops_t* mops;
     void* state;
 };
 
@@ -311,7 +312,7 @@ struct TDn* qtd_alloc(struct ehci_host *edev, enum usb_speed speed,
 		struct endpoint *ep, struct xact *xact, int nxact,
 		usb_cb_t cb, void *token);
 void qhn_update(struct QHn *qhn, uint8_t address, struct endpoint *ep);
-void qtd_enqueue(struct QHn *qhn, struct TDn *tdn);
+void qtd_enqueue(struct ehci_host *edev, struct QHn *qhn, struct TDn *tdn);
 void ehci_add_qhn_async(struct ehci_host *edev, struct QHn *qhn);
 void ehci_add_qhn_periodic(struct ehci_host *edev, struct QHn *qhn);
 void ehci_async_complete(struct ehci_host *edev);
