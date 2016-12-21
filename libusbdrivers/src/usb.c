@@ -909,6 +909,7 @@ usbdev_disconnect(usb_dev_t udev)
 {
     UNUSED int err;
     usb_host_t* hdev;
+    usb_hub_t hub;
     int cnt = 0;
 
     USB_DBG(udev, "Disconnecting\n");
@@ -918,6 +919,19 @@ usbdev_disconnect(usb_dev_t udev)
     if (udev->disconnect) {
         printf("calling device disconnect 0x%x\n", (uint32_t)udev->disconnect);
         udev->disconnect(udev);
+    }
+
+    /*
+     * Check if we are disconnecting a Hub, in which case we also need to
+     * disconnect all devices that connect to it.
+     */
+    if (udev->class == USB_CLASS_HUB) {
+	    hub = (usb_hub_t)udev->dev_data;
+	    for (int i = 0; i < hub->nports; i++) {
+		    if (hub->port[i].udev) {
+			    usbdev_disconnect(hub->port[i].udev);
+		    }
+	    }
     }
 
     /* Remove control endpoint */
@@ -932,11 +946,11 @@ usbdev_disconnect(usb_dev_t udev)
     assert(!err);
     (void)hdev;
     devlist_remove(udev);
-    if (udev->dev_data) {
-        /* Stow this device if a driver is attached */
-        udev->next = inactive_devlist;
-        inactive_devlist = udev;
-    } else {
+//    if (udev->dev_data) {
+//        /* Stow this device if a driver is attached */
+//        udev->next = inactive_devlist;
+//        inactive_devlist = udev;
+//    } else {
         /* destroy it */
         usb_free(udev->ep_ctrl);
 	for (int i = 0; i < USB_MAX_EPS; i++) {
@@ -945,7 +959,7 @@ usbdev_disconnect(usb_dev_t udev)
 		}
 	}
         usb_free(udev);
-    }
+//    }
 }
 
 void
